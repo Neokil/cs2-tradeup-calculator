@@ -89,7 +89,7 @@ export function createServer(port = parseInt(process.env.PORT || '3000', 10)) {
   app.get('/api/scan', (req, res) => {
     try {
       const minRoi     = req.query.minRoi     ? parseFloat(req.query.minRoi as string)    : config.minRoiThreshold;
-      const maxResults = req.query.maxResults ? parseInt(req.query.maxResults as string)  : 100;
+      const maxResults = req.query.maxResults ? parseInt(req.query.maxResults as string)  : config.maxResults;
       const statTrak   = req.query.statTrak   === 'true';
       const floatMode  = (['low', 'below_avg', 'mid'] as const)
         .find(m => m === req.query.floatMode) ?? 'mid';
@@ -395,6 +395,8 @@ function serializeResult(r: EvaluatedTradeUp) {
           minFloat: o.skin.minFloat,
           maxFloat: o.skin.maxFloat,
           isDoppler,
+          // hasPhasePrices: true when we have per-phase prices (API key set)
+          hasPhasePrices: isDoppler && !!config.csfloatApiKey,
           marketUrl: steamMarketUrl(o.skin.weaponName, o.skin.patternName, o.condition, statTrak),
           csfloatUrl: csfloatUrl(o.skin, o.condition, statTrak),
           hashName: buildMarketHashName(o.skin.weaponName, o.skin.patternName, o.condition, statTrak),

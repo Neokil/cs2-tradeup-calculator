@@ -1,4 +1,13 @@
 #!/usr/bin/env node
+// Load .env file before anything else
+import fs from 'fs';
+if (fs.existsSync('.env')) {
+  for (const line of fs.readFileSync('.env', 'utf8').split('\n')) {
+    const m = line.match(/^([A-Za-z_][A-Za-z0-9_]*)=(.*)$/);
+    if (m && !process.env[m[1]]) process.env[m[1]] = m[2].trim().replace(/^["']|["']$/g, '');
+  }
+}
+
 import { Command } from 'commander';
 import { syncCommand } from './cli/commands/sync.js';
 import { scanCommand } from './cli/commands/scan.js';

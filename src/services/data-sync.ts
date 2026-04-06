@@ -1,9 +1,11 @@
 import { getDb } from '../db/client.js';
 import { fetchCollections } from '../api/collections.js';
 import { fetchAllPricesBulk, PriceSource } from '../api/bulk-prices.js';
+import { fetchDopplerPhasePrices } from '../api/csfloat-doppler.js';
 import { buildMarketHashName } from '../api/prices.js';
 import { Skin } from '../models/types.js';
 import { Rarity, Condition, CONDITION_FLOAT_RANGES } from '../models/enums.js';
+import { config } from '../config.js';
 
 // ─────────────────────────────────────────────────────────────────
 // Static data: collections + skins
@@ -149,6 +151,49 @@ export async function syncAllPrices(
 
   console.log(`Synced ${synced} ${source} prices for ${skins.length} skins`);
   invalidateCache();
+
+  // ── Per-phase Doppler prices (requires CSFLOAT_API_KEY) ──────────────────
+  // The bulk price-list API aggregates all Doppler phases under one hash name.
+  // If an API key is available, fetch accurate per-phase prices separately.
+  if (source === 'csfloat' && config.csfloatApiKey) {
+    const dopplerSkins = skins.filter((s: any) =>
+      /doppler/i.test(s.pattern_name) && s.def_index != null && s.paint_index != null
+    ).map((s: any) => ({
+      id: s.id,
+      defIndex: s.def_index as number,
+      paintIndex: parseInt(s.paint_index, 10),
+      name: s.name as string,
+      minFloat: s.min_float as number,
+      maxFloat: s.max_float as number,
+      hasStatTrak: s.has_stattrak === 1,
+    }));
+
+    if (dopplerSkins.length > 0) {
+      const phaseMap = await fetchDopplerPhasePrices(dopplerSkins);
+
+      if (phaseMap.size > 0) {
+        let dopplerSynced = 0;
+        const now2 = Date.now();
+        db.transaction(() => {
+          for (const s of dopplerSkins) {
+            const key = `${s.defIndex}:${s.paintIndex}`;
+            const entry = phaseMap.get(key);
+            if (!entry) continue;
+            for (const condition of validConditionsForSkin(s)) {
+              // Store for both non-stattrak and stattrak variants
+              for (const st of [0, ...(s.hasStatTrak ? [1] : [])]) {
+                upsert.run(s.id, condition, st, source, entry.priceCents, entry.listings, now2);
+                dopplerSynced++;
+              }
+            }
+          }
+        })();
+        console.log(`Updated ${dopplerSynced} Doppler phase price entries`);
+        invalidateCache();
+      }
+    }
+  }
+
   return synced;
 }
 

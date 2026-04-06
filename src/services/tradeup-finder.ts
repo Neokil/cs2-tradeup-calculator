@@ -281,7 +281,7 @@ export interface FinderOptions {
 export function findProfitableTradeUps(options: FinderOptions = {}): EvaluatedTradeUp[] {
   const {
     minRoi = config.minRoiThreshold,
-    maxResults = 100,
+    maxResults = config.maxResults,
     statTrak = false,
     rarities = [Rarity.IndustrialGrade, Rarity.MilSpec, Rarity.Restricted, Rarity.Classified],
     floatMode = 'mid',

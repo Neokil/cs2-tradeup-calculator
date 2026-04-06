@@ -864,8 +864,11 @@ function renderDetail(r) {
         <div style="font-size:.68rem;color:var(--dim);opacity:.8">⏳ listing price</div>`;
     }
     const dopplerBadge = out.isDoppler
-      ? `<span title="CSFloat API nerozlišuje Doppler phases — cena = nejlevnější phase (Phase 3/4, ~$150-300). Ruby/Sapphire mohou být 10-50× dražší. Klikni na CSFloat link pro konkrétní phase. Cenu uprav ručně níže."
-               style="font-size:.65rem;background:#2a1a1a;color:#e87030;border:1px solid #8a4020;border-radius:3px;padding:1px 5px;cursor:help">⚠ Cena = nejlevnější phase — uprav!</span>`
+      ? (out.hasPhasePrices
+          ? `<span title="Cena načtena přímo z CSFloat pro tuto konkrétní Doppler phase (přesná per-phase cena)."
+                 style="font-size:.65rem;background:#1a2a1a;color:#7ecf7e;border:1px solid #4a8a4a;border-radius:3px;padding:1px 5px;cursor:help">◆ Doppler — per-phase cena</span>`
+          : `<span title="CSFloat API nerozlišuje Doppler phases — cena = průměr/nejlevnější phase. Ruby/Sapphire mohou být 10-50× dražší. Pro přesné ceny nastav CSFLOAT_API_KEY v .env."
+                 style="font-size:.65rem;background:#2a1a1a;color:#e87030;border:1px solid #8a4020;border-radius:3px;padding:1px 5px;cursor:help">⚠ Doppler — agregovaná cena</span>`)
       : '';
     const effectivePrice = out._verifiedPriceCents != null ? out._verifiedPriceCents / 100 : out.priceUsd;
     const outPriceInput = `<input type="number" step="0.01" min="0" value="${effectivePrice.toFixed(2)}"
