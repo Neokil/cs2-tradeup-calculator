@@ -1,0 +1,36 @@
+{
+  "version": "0.0.1",
+  "configurations": [
+    {
+      "name": "sync",
+      "runtimeExecutable": "/opt/homebrew/bin/node",
+      "runtimeArgs": ["node_modules/.bin/tsx", "src/index.ts", "sync"],
+      "port": null
+    },
+    {
+      "name": "scan",
+      "runtimeExecutable": "/opt/homebrew/bin/node",
+      "runtimeArgs": ["node_modules/.bin/tsx", "src/index.ts", "scan"],
+      "port": null
+    },
+    {
+      "name": "watch",
+      "runtimeExecutable": "/opt/homebrew/bin/node",
+      "runtimeArgs": ["node_modules/.bin/tsx", "src/index.ts", "watch"],
+      "port": null
+    },
+    {
+      "name": "test",
+      "runtimeExecutable": "/opt/homebrew/bin/node",
+      "runtimeArgs": ["node_modules/.bin/vitest", "run"],
+      "port": null
+    },
+    {
+      "name": "web",
+      "runtimeExecutable": "/opt/homebrew/bin/node",
+      "runtimeArgs": ["node_modules/.bin/tsx", "src/index.ts", "web"],
+      "port": 3000,
+      "autoPort": true
+    }
+  ]
+}

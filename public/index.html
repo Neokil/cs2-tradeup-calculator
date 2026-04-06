@@ -1,0 +1,1174 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>CS2 Trade-Up Calculator</title>
+<style>
+:root {
+  --bg:#0d0d11; --surf:#141418; --surf2:#1c1c22; --surf3:#22222a;
+  --border:#2c2c38; --border2:#3a3a4a;
+  --accent:#e8a838; --accent2:#5b9de8; --green:#4fbb72; --red:#e85959;
+  --text:#dde1ee; --dim:#6e6e88; --dim2:#4a4a60;
+  --fn:#aadcff; --mw:#6fcf8f; --ft:#e8c43a; --ww:#e87830; --bs:#cc4444;
+  --r1:#a0c4ff; --r2:#4b69ff; --r3:#8847ff; --r4:#d32ce6; --r5:#eb4b4b; --r6:#e8a838;
+}
+*{box-sizing:border-box;margin:0;padding:0}
+body{font-family:'Inter',system-ui,sans-serif;background:var(--bg);color:var(--text);min-height:100vh;font-size:14px}
+
+/* ── NAV ── */
+nav{background:var(--surf);border-bottom:1px solid var(--border);display:flex;align-items:center;padding:0 20px;position:sticky;top:0;z-index:100;height:52px}
+.brand{font-weight:800;font-size:1.05rem;color:var(--accent);margin-right:24px;white-space:nowrap}
+.brand span{color:var(--dim);font-weight:400;font-size:.82rem}
+.tabs{display:flex;gap:2px}
+.tab{padding:0 16px;height:52px;display:flex;align-items:center;cursor:pointer;color:var(--dim);border-bottom:2px solid transparent;font-size:.88rem;transition:.12s;white-space:nowrap}
+.tab:hover{color:var(--text)}
+.tab.active{color:var(--accent);border-bottom-color:var(--accent)}
+.nav-right{margin-left:auto;display:flex;gap:16px;align-items:center;font-size:.8rem;color:var(--dim)}
+.nav-right b{color:var(--text)}
+
+/* ── PAGES ── */
+.page{display:none;padding:20px;max-width:1440px;margin:0 auto}
+.page.active{display:block}
+
+/* ── LAYOUT HELPERS ── */
+.row{display:flex;gap:16px;flex-wrap:wrap}
+.col{flex:1;min-width:0}
+.card{background:var(--surf);border:1px solid var(--border);border-radius:8px;padding:16px}
+.card-title{font-size:.78rem;font-weight:600;color:var(--dim);text-transform:uppercase;letter-spacing:.06em;margin-bottom:12px}
+
+/* ── STATS GRID ── */
+.stats-grid{display:grid;grid-template-columns:repeat(4,1fr);gap:12px;margin-bottom:20px}
+.stat{background:var(--surf);border:1px solid var(--border);border-radius:8px;padding:16px}
+.stat .lbl{font-size:.75rem;color:var(--dim);margin-bottom:4px}
+.stat .val{font-size:1.8rem;font-weight:700;line-height:1}
+.stat .sub{font-size:.75rem;color:var(--dim);margin-top:4px}
+
+/* ── RARITY TABLE ── */
+.rtable{width:100%;border-collapse:collapse}
+.rtable th{font-size:.73rem;color:var(--dim);font-weight:600;padding:6px 10px;text-align:left;border-bottom:1px solid var(--border)}
+.rtable td{padding:7px 10px;font-size:.85rem;border-bottom:1px solid var(--border2)}
+.rtable tr:last-child td{border:none}
+.pct-bar{height:5px;background:var(--border);border-radius:3px;overflow:hidden;width:120px}
+.pct-fill{height:100%;background:var(--accent);border-radius:3px;transition:.4s}
+
+/* ── CONTROLS ── */
+.controls{display:flex;align-items:flex-end;gap:10px;margin-bottom:16px;flex-wrap:wrap}
+.field{display:flex;flex-direction:column;gap:5px}
+.field label{font-size:.75rem;color:var(--dim);font-weight:500}
+.field input,.field select{background:var(--surf2);border:1px solid var(--border);border-radius:6px;padding:7px 10px;color:var(--text);font-size:.88rem;outline:none;min-width:80px}
+.field input:focus,.field select:focus{border-color:var(--accent)}
+
+/* ── BUTTONS ── */
+.btn{padding:8px 16px;border:none;border-radius:6px;cursor:pointer;font-size:.88rem;font-weight:600;transition:.12s;line-height:1}
+.btn-primary{background:var(--accent);color:#111}
+.btn-primary:hover{filter:brightness(1.1)}
+.btn-secondary{background:var(--surf2);color:var(--text);border:1px solid var(--border)}
+.btn-secondary:hover{border-color:var(--accent)}
+.btn:disabled{opacity:.45;cursor:not-allowed}
+.btn-sm{padding:5px 10px;font-size:.8rem}
+
+/* ── BADGES ── */
+.badge{display:inline-block;padding:2px 7px;border-radius:4px;font-size:.72rem;font-weight:600;vertical-align:middle}
+.b-green{background:rgba(79,187,114,.15);color:var(--green)}
+.b-red{background:rgba(232,89,89,.15);color:var(--red)}
+.b-yellow{background:rgba(232,168,56,.15);color:var(--accent)}
+.b-blue{background:rgba(91,157,232,.15);color:var(--accent2)}
+.b-gray{background:rgba(110,110,136,.15);color:var(--dim)}
+
+/* Wear badges */
+.w-fn{color:var(--fn)} .w-mw{color:var(--mw)} .w-ft{color:var(--ft)}
+.w-ww{color:var(--ww)} .w-bs{color:var(--bs)}
+.r-1{color:var(--r1)} .r-2{color:var(--r2)} .r-3{color:var(--r3)} .r-4{color:var(--r4)} .r-5{color:var(--r5)} .r-6{color:var(--r6)}
+
+/* ── RESULTS TABLE ── */
+#resultsWrap{overflow:auto;max-height:calc(100vh - 210px);border:1px solid var(--border);border-radius:8px}
+.results-table{width:100%;border-collapse:collapse;min-width:900px}
+.results-table thead th{
+  background:var(--surf2);padding:9px 12px;text-align:left;
+  font-size:.73rem;color:var(--dim);font-weight:600;text-transform:uppercase;
+  letter-spacing:.05em;border-bottom:1px solid var(--border);position:sticky;top:0;z-index:10
+}
+.results-table tbody tr{border-bottom:1px solid var(--border2);cursor:pointer;transition:.1s}
+.results-table tbody tr:hover{background:var(--surf2)}
+.results-table tbody tr.expanded{background:var(--surf2)}
+.results-table td{padding:10px 12px;vertical-align:top}
+
+/* detail row */
+.detail-row td{padding:0;background:var(--surf3);border-bottom:1px solid var(--border)}
+.detail-inner{padding:16px 20px;display:grid;grid-template-columns:1fr 1fr;gap:20px}
+.detail-section .sec-title{font-size:.72rem;font-weight:600;color:var(--dim);text-transform:uppercase;letter-spacing:.06em;margin-bottom:10px}
+.item-row{display:flex;justify-content:space-between;align-items:center;padding:6px 0;border-bottom:1px solid var(--border2);font-size:.85rem;gap:8px}
+.item-row:last-child{border:none}
+.item-row .iname{flex:1;min-width:0}
+.item-row .iname .sub{font-size:.72rem;color:var(--dim);margin-top:2px}
+.item-row .iprice{text-align:right;white-space:nowrap;min-width:60px;color:var(--accent)}
+.item-row .iprob{text-align:right;white-space:nowrap;min-width:40px;color:var(--dim);font-size:.8rem}
+
+/* Float bar */
+.fbar-wrap{width:100px;margin-top:4px}
+.fbar{height:3px;border-radius:2px;background:var(--border);position:relative}
+.fbar-fill{position:absolute;inset:0;border-radius:2px;background:linear-gradient(90deg,var(--fn) 0%,var(--mw) 7%,var(--ft) 15%,var(--ww) 38%,var(--bs) 45%)}
+.fbar-mark{position:absolute;top:-3px;width:2px;height:9px;background:#fff;border-radius:1px;transform:translateX(-50%)}
+.fbar-labels{display:flex;justify-content:space-between;font-size:.65rem;color:var(--dim2);margin-top:2px}
+
+/* ROI cell */
+.roi-big{font-size:1.15rem;font-weight:700;white-space:nowrap}
+.roi-pos{color:var(--green)} .roi-neg{color:var(--red)}
+
+/* float note box */
+.float-note{background:rgba(91,157,232,.1);border:1px solid rgba(91,157,232,.3);border-radius:6px;padding:8px 12px;font-size:.8rem;color:var(--accent2);margin-top:10px;line-height:1.5}
+
+/* ── SYNC PAGE ── */
+.sync-grid{display:grid;grid-template-columns:340px 1fr;gap:16px;margin-bottom:16px}
+.log-box{background:#09090d;border:1px solid var(--border);border-radius:8px;padding:12px;font-family:'JetBrains Mono',monospace;font-size:.78rem;height:280px;overflow-y:auto;line-height:1.8}
+.log-line{color:var(--dim)}
+.log-ok{color:var(--green)} .log-err{color:var(--red)} .log-hd{color:var(--accent)}
+.pbar-outer{background:var(--surf2);border-radius:4px;height:8px;overflow:hidden;margin:10px 0}
+.pbar-inner{height:100%;background:var(--accent);border-radius:4px;transition:width .4s}
+
+/* ── FLOAT CALC ── */
+.calc-grid{display:grid;grid-template-columns:1fr 1fr;gap:16px}
+.skin-slots{display:flex;flex-direction:column;gap:6px}
+.slot-row{display:grid;grid-template-columns:24px 1fr 100px 90px 28px;gap:6px;align-items:center}
+.slot-num{font-size:.75rem;color:var(--dim);text-align:center}
+.ac-wrap{position:relative}
+.ac-input{width:100%;background:var(--surf2);border:1px solid var(--border);border-radius:6px;padding:7px 10px;color:var(--text);font-size:.83rem;outline:none}
+.ac-input:focus{border-color:var(--accent2)}
+.ac-list{position:absolute;z-index:200;top:100%;left:0;right:0;background:var(--surf2);border:1px solid var(--accent2);border-radius:0 0 6px 6px;max-height:180px;overflow-y:auto;box-shadow:0 8px 24px rgba(0,0,0,.5)}
+.ac-item{padding:8px 12px;cursor:pointer;font-size:.82rem}
+.ac-item:hover{background:var(--border)}
+.ac-item .ac-sub{font-size:.72rem;color:var(--dim);margin-top:1px}
+.range-badge{background:var(--surf3);border:1px solid var(--border2);border-radius:4px;padding:4px 8px;font-size:.72rem;color:var(--dim);white-space:nowrap;text-align:center}
+.float-input{background:var(--surf2);border:1px solid var(--border);border-radius:6px;padding:7px 8px;color:var(--text);font-size:.83rem;width:100%;outline:none}
+.float-input:focus{border-color:var(--accent2)}
+.slot-del{background:none;border:none;color:var(--dim2);cursor:pointer;font-size:1rem;line-height:1;padding:4px}
+.slot-del:hover{color:var(--red)}
+
+/* ── FORMULA BOX ── */
+.formula-box{background:var(--surf2);border:1px solid var(--border);border-radius:8px;padding:16px;margin-top:16px;font-size:.82rem;line-height:1.8}
+.formula-box code{background:var(--surf3);padding:1px 6px;border-radius:3px;font-family:monospace;font-size:.78rem}
+
+/* ── EMPTY STATE ── */
+.empty{text-align:center;padding:60px 20px;color:var(--dim)}
+.empty .eico{font-size:2.5rem;margin-bottom:12px}
+.empty p{margin-top:6px;font-size:.9rem}
+
+/* ── SPINNER ── */
+.spin{display:inline-block;width:14px;height:14px;border:2px solid var(--border);border-top-color:var(--accent);border-radius:50%;animation:spin .5s linear infinite;vertical-align:middle}
+@keyframes spin{to{transform:rotate(360deg)}}
+
+::-webkit-scrollbar{width:5px;height:5px}
+::-webkit-scrollbar-track{background:var(--surf)}
+::-webkit-scrollbar-thumb{background:var(--border2);border-radius:3px}
+
+@media(max-width:800px){
+  .stats-grid{grid-template-columns:1fr 1fr}
+  .sync-grid,.calc-grid{grid-template-columns:1fr}
+  .detail-inner{grid-template-columns:1fr}
+}
+</style>
+</head>
+<body>
+<nav>
+  <div class="brand">CS2 Trade-Up <span>Calculator</span></div>
+  <div class="tabs">
+    <div class="tab active" data-page="dashboard">Dashboard</div>
+    <div class="tab" data-page="scan">Scan</div>
+    <div class="tab" data-page="sync">Sync</div>
+    <div class="tab" data-page="calc">Float Calc</div>
+  </div>
+  <div class="nav-right" id="navRight"></div>
+</nav>
+
+<!-- ───────────────────────── DASHBOARD ─────────────────────────── -->
+<div class="page active" id="page-dashboard">
+  <div class="stats-grid">
+    <div class="stat"><div class="lbl">Collections</div><div class="val" id="sc">—</div></div>
+    <div class="stat"><div class="lbl">Skins</div><div class="val" id="ss">—</div></div>
+    <div class="stat"><div class="lbl">Prices cached</div><div class="val" id="sp">—</div><div class="sub" id="sage"></div></div>
+    <div class="stat"><div class="lbl">Profitable TUs found</div><div class="val" id="stu">—</div><div class="sub">last scan</div></div>
+  </div>
+  <div class="card">
+    <div class="card-title">Price coverage by rarity</div>
+    <div id="rarityTableWrap"></div>
+  </div>
+</div>
+
+<!-- ───────────────────────── SCAN ──────────────────────────────── -->
+<div class="page" id="page-scan">
+  <!-- Price age warning banner -->
+  <div id="priceAgeBanner" style="display:none;align-items:center;gap:10px;background:#2a1a0a;border:1px solid var(--accent);border-radius:6px;padding:9px 14px;margin-bottom:12px;font-size:.83rem">
+    <span>⚠️</span>
+    <span>Prices are <b id="bannerAge"></b> old — results may be outdated.</span>
+    <button onclick="goSyncAndStart()" style="margin-left:auto;padding:4px 12px;background:var(--accent);color:#000;border:none;border-radius:4px;cursor:pointer;font-size:.8rem;font-weight:600">Sync now</button>
+  </div>
+  <div class="controls">
+    <div class="field"><label>Min ROI %</label><input type="number" id="minRoi" value="5" min="0" max="999" style="width:80px"></div>
+    <div class="field"><label>Max results</label><input type="number" id="maxRes" value="100" min="1" max="500" style="width:80px"></div>
+    <div class="field"><label>StatTrak™</label>
+      <select id="statTrak"><option value="false">No</option><option value="true">Yes</option></select>
+    </div>
+    <div class="field"><label title="Controls which float value is assumed for inputs within their condition range.">Float mode</label>
+      <select id="floatMode">
+        <option value="mid">Realistic — avg float (50th pct)</option>
+        <option value="below_avg" selected>Below avg — light filter (25th pct)</option>
+        <option value="low">Low float — active hunting (10th pct)</option>
+      </select>
+    </div>
+    <div class="field"><label title="Which price source to use for this scan. Must match the source you last synced.">Price source</label>
+      <select id="scanPriceSource">
+        <option value="csfloat" selected>CSFloat</option>
+        <option value="steam">Steam Market</option>
+      </select>
+    </div>
+    <button class="btn btn-primary" id="scanBtn" onclick="runScan()">🔍 Scan for profits</button>
+    <span id="scanMeta" style="font-size:.8rem;color:var(--dim);align-self:center"></span>
+  </div>
+  <!-- Live price verification progress -->
+  <div id="verifyWrap" style="display:none;margin-bottom:10px;background:var(--surf);border:1px solid var(--border);border-radius:6px;padding:10px 14px">
+    <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:6px">
+      <span id="verifyLabel" style="font-size:.8rem;color:var(--dim)"></span>
+      <button onclick="verifyCtrl&&verifyCtrl.abort();document.getElementById('verifyWrap').style.display='none'"
+              style="font-size:.72rem;background:none;border:none;color:var(--dim2);cursor:pointer">✕</button>
+    </div>
+    <div style="background:var(--surf2);border-radius:3px;height:4px;overflow:hidden">
+      <div id="verifyBar" style="height:100%;width:0%;background:var(--accent2);border-radius:3px;transition:width .3s"></div>
+    </div>
+    <div style="font-size:.72rem;color:var(--dim);margin-top:5px">
+      🔍 Checking median sale prices from Steam Market — ROI values update in real-time as each price is verified. (Steam source only)
+    </div>
+  </div>
+  <div id="resultsWrap">
+    <div class="empty"><div class="eico">🎯</div><p>Click "Scan for profits" to find trade-ups.</p><p>Make sure prices are synced first (Sync tab).</p></div>
+  </div>
+</div>
+
+<!-- ───────────────────────── SYNC ──────────────────────────────── -->
+<div class="page" id="page-sync">
+  <div class="sync-grid">
+    <div class="card">
+      <div class="card-title">Options</div>
+      <div style="display:flex;flex-direction:column;gap:12px">
+        <label style="display:flex;align-items:center;gap:8px;cursor:pointer;font-size:.88rem">
+          <input type="checkbox" id="skipCollections"> Skip skin/collection sync
+        </label>
+        <div>
+          <label style="font-size:.8rem;color:var(--dim);display:block;margin-bottom:5px">Price source</label>
+          <select id="priceSource" onchange="updateSourceInfo()" style="width:100%;padding:5px 8px;background:var(--surf3);border:1px solid var(--border);color:var(--text);border-radius:4px;font-size:.85rem">
+            <option value="csfloat" selected>🟢 CSFloat (bulk API, ~5 sec)</option>
+            <option value="steam">🔵 Steam Community Market (~8 min, may rate-limit)</option>
+          </select>
+          <div id="sourceInfo" style="font-size:.76rem;color:var(--dim);margin-top:5px;line-height:1.5"></div>
+        </div>
+        <div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap">
+          <label style="font-size:.83rem;color:var(--dim)">Auto-sync every:</label>
+          <select id="autoSyncInterval" onchange="setAutoSync()" style="font-size:.83rem;padding:3px 8px;background:var(--surf3);border:1px solid var(--border);color:var(--text);border-radius:4px">
+            <option value="0">Off</option>
+            <option value="15">15 min</option>
+            <option value="30" selected>30 min</option>
+            <option value="60">1 hour</option>
+            <option value="180">3 hours</option>
+          </select>
+          <span id="autoSyncStatus" style="font-size:.75rem;color:var(--dim)"></span>
+        </div>
+        <div style="display:flex;gap:8px;margin-top:4px">
+          <button class="btn btn-primary" id="syncBtn" onclick="startSync()">▶ Start Sync</button>
+          <button class="btn btn-secondary" id="stopBtn" disabled onclick="stopSync()">⏹ Stop</button>
+        </div>
+      </div>
+    </div>
+    <div class="card">
+      <div class="card-title">Progress</div>
+      <div id="progressLabel" style="font-size:.85rem;color:var(--dim);margin-bottom:8px">Idle</div>
+      <div class="pbar-outer"><div class="pbar-inner" id="pbar" style="width:0%"></div></div>
+      <div id="progressSub" style="font-size:.75rem;color:var(--dim);margin-top:4px"></div>
+    </div>
+  </div>
+  <div class="card">
+    <div class="card-title">Log</div>
+    <div class="log-box" id="logBox"></div>
+  </div>
+</div>
+
+<!-- ───────────────────────── FLOAT CALC ─────────────────────────── -->
+<div class="page" id="page-calc">
+  <div class="calc-grid">
+    <div class="card">
+      <div class="card-title">Input skins (up to 10)</div>
+      <div style="font-size:.78rem;color:var(--dim);margin-bottom:12px">
+        Search a skin, pick its float. Mix from different collections to see probability splits.
+      </div>
+      <div class="skin-slots" id="slots"></div>
+      <div style="display:flex;gap:8px;margin-top:12px">
+        <button class="btn btn-primary" onclick="calcFloat()">⚡ Calculate output</button>
+        <button class="btn btn-secondary btn-sm" onclick="addSlot()">+ Add slot</button>
+        <button class="btn btn-secondary btn-sm" onclick="clearSlots()">Clear</button>
+      </div>
+    </div>
+
+    <div class="card">
+      <div class="card-title">Possible outputs</div>
+      <div id="calcOut">
+        <div class="empty"><div class="eico">🎲</div><p>Add skins and click Calculate.</p></div>
+      </div>
+    </div>
+  </div>
+
+  <div class="formula-box">
+    <b style="color:var(--accent)">Oct 2025 Float Formula:</b><br>
+    1. Per input: <code>norm = (float − skinMin) / (skinMax − skinMin)</code><br>
+    2. <code>avgNorm = sum(norm) / 10</code><br>
+    3. <code>outputFloat = (outMax − outMin) × avgNorm + outMin</code><br>
+    <br>
+    <b style="color:var(--accent2)">Why float matters:</b>
+    Steam Market prices are the same for all FT skins regardless of exact float.
+    But a FT skin at <code>float 0.151</code> (bottom of FT range) normalizes to nearly 0 → can produce
+    <b style="color:var(--mw)">Minimal Wear</b> or even <b style="color:var(--fn)">Factory New</b> output.
+    That's the profitable trade-up scenario.
+  </div>
+</div>
+
+<script>
+// ── Base URL (works whether served directly or via proxy/iframe) ──
+const API = (window.location.origin && window.location.origin !== 'null') ? window.location.origin : 'http://localhost:3000';
+
+// ── Condition styling ─────────────────────────────────────────────
+const COND_CLASS = {
+  'Factory New':'w-fn','Minimal Wear':'w-mw','Field-Tested':'w-ft','Well-Worn':'w-ww','Battle-Scarred':'w-bs'
+};
+const COND_ABBR = {'Factory New':'FN','Minimal Wear':'MW','Field-Tested':'FT','Well-Worn':'WW','Battle-Scarred':'BS'};
+const COND_RANGES = {'Factory New':[0,.07],'Minimal Wear':[.07,.15],'Field-Tested':[.15,.38],'Well-Worn':[.38,.45],'Battle-Scarred':[.45,1]};
+const RARITY_CLASS = {'Consumer Grade':'r-0','Industrial Grade':'r-1','Mil-Spec':'r-2','Restricted':'r-3','Classified':'r-4','Covert':'r-5','Extraordinary':'r-6'};
+const RARITY_SHORT = {'Consumer Grade':'CG','Industrial Grade':'IG','Mil-Spec':'MS','Restricted':'RS','Classified':'CL','Covert':'CV','Extraordinary':'★'};
+
+function condBadge(c) {
+  const cls = COND_CLASS[c] || '';
+  return `<span class="${cls}" style="font-weight:600">${COND_ABBR[c]||c}</span>`;
+}
+function rarityBadge(r) {
+  const cls = RARITY_CLASS[r] || '';
+  return `<span class="${cls}" style="font-weight:600">${r}</span>`;
+}
+function fmtUsd(n) { return n > 0 ? '$'+n.toFixed(2) : '<span style="color:var(--dim)">—</span>'; }
+
+// Float bar from 0→1 with marker
+function floatBar(f, minF, maxF) {
+  const skinRange = maxF - minF;
+  const pct = skinRange > 0 ? ((f - minF) / skinRange * 100).toFixed(1) : 50;
+  return `<div class="fbar-wrap">
+    <div class="fbar">
+      <div class="fbar-fill"></div>
+      <div class="fbar-mark" style="left:${pct}%"></div>
+    </div>
+    <div class="fbar-labels"><span>${minF}</span><span style="color:var(--text);font-weight:600">${f}</span><span>${maxF}</span></div>
+  </div>`;
+}
+
+// ── Navigation ────────────────────────────────────────────────────
+document.querySelectorAll('.tab').forEach(t => {
+  t.addEventListener('click', () => {
+    document.querySelectorAll('.tab').forEach(x => x.classList.remove('active'));
+    document.querySelectorAll('.page').forEach(x => x.classList.remove('active'));
+    t.classList.add('active');
+    document.getElementById('page-' + t.dataset.page).classList.add('active');
+    if (t.dataset.page === 'dashboard') loadStatus();
+    if (t.dataset.page === 'calc' && document.querySelectorAll('.slot-row').length === 0) initSlots();
+  });
+});
+
+// ── Dashboard ─────────────────────────────────────────────────────
+let lastScanCount = '—';
+async function loadStatus() {
+  try {
+    const s = await fetch(API+'/api/status').then(r => r.json());
+    document.getElementById('sc').textContent = s.collections;
+    document.getElementById('ss').textContent = s.skins;
+    document.getElementById('sp').textContent = s.prices;
+    document.getElementById('stu').textContent = lastScanCount;
+    if (s.lastPrice) {
+      const min = Math.round((Date.now() - s.lastPrice) / 60000);
+      const ageLabel = min < 60 ? `${min}m ago` : `${Math.round(min/60)}h ago`;
+      document.getElementById('sage').textContent = ageLabel;
+      // Show warning banner if prices are stale (> 30 min)
+      const banner = document.getElementById('priceAgeBanner');
+      if (banner) {
+        if (min > 30) {
+          banner.style.display = 'flex';
+          banner.querySelector('#bannerAge').textContent = ageLabel;
+        } else {
+          banner.style.display = 'none';
+        }
+      }
+    }
+    document.getElementById('navRight').innerHTML =
+      `<span><b>${s.prices}</b> prices</span><span><b>${s.skins}</b> skins</span>`;
+
+    const names = ['Consumer','Industrial','Mil-Spec','Restricted','Classified','Covert','★ Extraordinary'];
+    const rCls = ['','r-1','r-2','r-3','r-4','r-5','r-6'];
+    const rows = (s.byRarity||[]).filter(r => r.rarity > 0).map(r => {
+      const pct = r.total_skins ? Math.round(r.priced_skins / r.total_skins * 100) : 0;
+      return `<tr>
+        <td class="${rCls[r.rarity]||''}">${names[r.rarity]||r.rarity}</td>
+        <td>${r.total_skins}</td>
+        <td>${r.priced_skins}</td>
+        <td>${r.price_entries}</td>
+        <td><div class="pct-bar"><div class="pct-fill" style="width:${pct}%"></div></div></td>
+        <td style="color:var(--dim)">${pct}%</td>
+      </tr>`;
+    }).join('');
+    document.getElementById('rarityTableWrap').innerHTML = `
+      <table class="rtable">
+        <thead><tr>
+          <th>Rarity</th><th>Total skins</th><th>Skins with price</th>
+          <th>Price entries</th><th colspan="2">Coverage</th>
+        </tr></thead>
+        <tbody>${rows}</tbody>
+      </table>`;
+  } catch(e) { console.error(e); }
+}
+loadStatus();
+
+// ── Price verification ────────────────────────────────────────────
+// After a scan we stream live priceoverview data for every unique output skin.
+// When a verified median price arrives, we recalculate ROI in-place.
+
+const TAX = 0.13;
+let verifyCtrl = null;
+let currentResults = [];
+let currentPriceSource = 'csfloat'; // updated on each scan
+// hashName → { medianCents, volume } once verified
+const verifiedPrices = new Map();
+// hashName → true if illiquid (no listings)
+const illiquidSkins = new Set();
+
+function recomputeResult(r, overrides) {
+  // overrides: Map<hashName, medianPriceCents>
+  // Outputs with no override and no loot.farm price (priceUsd=0) are skipped — their
+  // contribution is unknown but we do NOT zero them; they simply don't update the EV.
+  let evCents = 0;
+  for (const o of r.outputs) {
+    let pCents;
+    if (overrides.has(o.hashName)) {
+      pCents = overrides.get(o.hashName); // verified median (may be null if unverifiable)
+    } else {
+      pCents = o.priceUsd * 100;          // cached loot.farm price
+    }
+    if (pCents == null) pCents = o.priceUsd * 100; // fallback to cached if null
+    evCents += pCents * (o.probability / 100);
+  }
+  const evAfterTax = evCents * (1 - TAX);
+  const costCents = r.costUsd * 100;
+  const profit = evAfterTax - costCents;
+  const roi = costCents > 0 ? (profit / costCents * 100) : 0;
+  return { evUsd: evAfterTax / 100, profitUsd: profit / 100, roi };
+}
+
+/** Called when an INPUT skin has no listings — the whole trade-up is impossible. */
+function markInputIlliquid(hashName) {
+  currentResults.forEach((r, i) => {
+    const hasThisInput = r.inputs.some(inp => inp.hashName === hashName);
+    if (!hasThisInput) return;
+
+    // Mark the row visually
+    const roiEl   = document.getElementById(`roi-${i}`);
+    const profEl  = document.getElementById(`prof-${i}`);
+    const evEl    = document.getElementById(`ev-${i}`);
+    const badgeEl = document.getElementById(`vbadge-${i}`);
+    if (!roiEl) return;
+
+    roiEl.className = 'roi-big roi-neg';
+    roiEl.style.textDecoration = 'line-through';
+    roiEl.style.opacity = '0.5';
+    if (profEl) profEl.innerHTML = '<span style="color:var(--red)">—</span>';
+    if (evEl)   evEl.textContent = '';
+    if (badgeEl) {
+      const skinName = r.inputs.find(inp => inp.hashName === hashName)?.name ?? hashName;
+      badgeEl.innerHTML = `<span title="${skinName} has no listings on Steam — cannot be purchased" style="font-size:.68rem;background:rgba(232,89,89,.25);color:var(--red);border-radius:3px;padding:1px 5px;margin-left:4px">🚫 inputs unavailable</span>`;
+    }
+
+    // Also refresh open detail panel
+    if (expandedRow === i) {
+      const detail = document.getElementById('detail-' + i);
+      if (detail && detail.style.display !== 'none') {
+        detail.querySelector('td').innerHTML = renderDetail(r);
+      }
+    }
+  });
+}
+
+function applyVerifiedPrice(hashName, medianCents, volume, illiquid = false) {
+  // For outputs: if illiquid, store null (keep cached price for EV) rather than 0
+  verifiedPrices.set(hashName, illiquid ? null : medianCents);
+  // Update every result row that has this hashName as an output
+  currentResults.forEach((r, i) => {
+    const hasOutput = r.outputs.some(o => o.hashName === hashName);
+    if (!hasOutput) return;
+    const recomp = recomputeResult(r, verifiedPrices);
+    // Update the displayed ROI/profit cells
+    const roiEl   = document.getElementById(`roi-${i}`);
+    const profEl  = document.getElementById(`prof-${i}`);
+    const evEl    = document.getElementById(`ev-${i}`);
+    const badgeEl = document.getElementById(`vbadge-${i}`);
+    if (!roiEl) return;
+    const roiCls = recomp.roi >= 0 ? 'roi-pos' : 'roi-neg';
+    const roiSign = recomp.roi > 0 ? '+' : '';
+    roiEl.className = `roi-big ${roiCls}`;
+    roiEl.textContent = `${roiSign}${recomp.roi.toFixed(1)}%`;
+    if (recomp.profitUsd >= 0) {
+      profEl.innerHTML = `<b style="color:var(--green)">+${fmtUsd(recomp.profitUsd)}</b>`;
+    } else {
+      profEl.innerHTML = `<b style="color:var(--red)">${fmtUsd(recomp.profitUsd)}</b>`;
+    }
+    evEl.textContent  = `EV: ${fmtUsd(recomp.evUsd)}`;
+    if (badgeEl) {
+      if (illiquid) {
+        // Output has no listings but we DON'T zero EV — mark with ? to indicate uncertainty
+        badgeEl.innerHTML = `<span title="Some outputs have no Steam listings — price uncertain, EV kept from cached data" style="font-size:.68rem;background:rgba(255,165,0,.2);color:#f0a030;border-radius:3px;padding:1px 5px;margin-left:4px">⚠️ output unverified</span>`;
+      } else {
+        const bigChange = r.outputs.some(o => {
+          if (o.hashName !== hashName) return false;
+          const cached = o.priceUsd * 100;
+          return cached > 0 && Math.abs(medianCents - cached) / cached > 0.15;
+        });
+        if (bigChange) {
+          badgeEl.innerHTML = `<span title="Median sale price differs from cached price by >15%" style="font-size:.68rem;background:rgba(232,89,89,.18);color:var(--red);border-radius:3px;padding:1px 5px;margin-left:4px">⚠️ price updated</span>`;
+        } else {
+          badgeEl.innerHTML = `<span title="Price verified against live Steam data" style="font-size:.68rem;background:rgba(79,187,114,.15);color:var(--green);border-radius:3px;padding:1px 5px;margin-left:4px">✓ verified</span>`;
+        }
+      }
+    }
+  });
+  // Update output objects so detail panel re-renders with verified prices
+  currentResults.forEach((r, i) => {
+    let changed = false;
+    r.outputs.forEach(o => {
+      if (o.hashName === hashName) {
+        o._verifiedPriceCents = medianCents;
+        o._verifiedVolume = volume;
+        o._illiquid = illiquid;
+        changed = true;
+      }
+    });
+    // If this row's detail is currently open, refresh it in-place
+    if (changed && expandedRow === i) {
+      const detail = document.getElementById('detail-' + i);
+      if (detail && detail.style.display !== 'none') {
+        detail.querySelector('td').innerHTML = renderDetail(r);
+      }
+    }
+  });
+}
+
+function startVerification(results) {
+  if (verifyCtrl) verifyCtrl.abort();
+  verifyCtrl = null;
+  verifiedPrices.clear();
+  illiquidSkins.clear();
+
+  // Verify BOTH output and input hash names so we can detect un-buyable inputs
+  const outputNames = new Set(results.flatMap(r => r.outputs.map(o => o.hashName)));
+  const inputNames  = new Set(results.flatMap(r => r.inputs.map(i => i.hashName).filter(Boolean)));
+  const hashNames   = [...new Set([...outputNames, ...inputNames])];
+  if (!hashNames.length) return;
+
+  // Show verification progress bar
+  const verBar   = document.getElementById('verifyBar');
+  const verLabel = document.getElementById('verifyLabel');
+  const verWrap2 = document.getElementById('verifyWrap');
+  if (verWrap2) verWrap2.style.display = 'block';
+  if (verBar)   verBar.style.width = '0%';
+  if (verLabel) verLabel.textContent = `Verifying ${hashNames.length} output prices via Steam…`;
+
+  const ctrl = new AbortController();
+  verifyCtrl = ctrl;
+
+  fetch(API + '/api/price/verify-batch', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ hashNames }),
+    signal: ctrl.signal,
+  }).then(async res => {
+    const reader = res.body.getReader();
+    const dec = new TextDecoder();
+    let buf = '';
+    while (true) {
+      const { done, value } = await reader.read();
+      if (done) break;
+      buf += dec.decode(value, { stream: true });
+      const lines = buf.split('\n'); buf = lines.pop();
+      for (const line of lines) {
+        if (!line.startsWith('data:')) continue;
+        try {
+          const ev = JSON.parse(line.slice(5));
+          if (ev.type === 'price') {
+            // lowestPriceCents == null → no active listings on Steam
+            const illiquid = ev.lowestPriceCents == null;
+            if (illiquid) illiquidSkins.add(ev.hashName);
+
+            // INPUT skin illiquid → entire trade-up is impossible (can't buy input)
+            const affectedAsInput = currentResults.some(r =>
+              r.inputs.some(i => i.hashName === ev.hashName)
+            );
+            if (affectedAsInput && illiquid) {
+              markInputIlliquid(ev.hashName);
+            }
+
+            // OUTPUT: update with verified median price (or null if illiquid — keeps cached EV)
+            const affectedAsOutput = currentResults.some(r =>
+              r.outputs.some(o => o.hashName === ev.hashName)
+            );
+            if (affectedAsOutput) {
+              // For illiquid outputs: pass null so recomputeResult falls back to cached price
+              const medianCents = illiquid ? null : (ev.medianPriceCents ?? ev.lowestPriceCents ?? null);
+              applyVerifiedPrice(ev.hashName, medianCents, ev.volume ?? 0, illiquid);
+            }
+          }
+          if (ev.type === 'price' && ev.progress != null) {
+            if (verBar) verBar.style.width = (ev.progress * 100).toFixed(0) + '%';
+          }
+          if (ev.type === 'done') {
+            if (verLabel) verLabel.textContent = `✓ ${hashNames.length} output prices verified`;
+            if (verBar) verBar.style.width = '100%';
+          }
+        } catch {}
+      }
+    }
+  }).catch(e => {
+    if (e.name !== 'AbortError' && verLabel)
+      verLabel.textContent = 'Price verification failed: ' + e.message;
+  });
+}
+
+// ── Scan ──────────────────────────────────────────────────────────
+let expandedRow = null;
+
+async function runScan() {
+  const btn = document.getElementById('scanBtn');
+  btn.disabled = true; btn.innerHTML = '<span class="spin"></span> Scanning…';
+  document.getElementById('scanMeta').textContent = '';
+  document.getElementById('resultsWrap').innerHTML =
+    '<div class="empty"><div class="eico"><span class="spin" style="width:32px;height:32px;border-width:3px"></span></div><p style="margin-top:16px">Searching combinations…</p></div>';
+
+  try {
+    const minRoi = +document.getElementById('minRoi').value;
+    const maxRes = +document.getElementById('maxRes').value;
+    const statTrak = document.getElementById('statTrak').value;
+    const floatMode = document.getElementById('floatMode').value;
+    const scanPriceSource = document.getElementById('scanPriceSource').value;
+    const url = `${API}/api/scan?minRoi=${minRoi}&maxResults=${maxRes}&statTrak=${statTrak}&floatMode=${floatMode}&priceSource=${scanPriceSource}`;
+    const t0 = Date.now();
+    const data = await fetch(url).then(r => r.json());
+    if (data.error) throw new Error(data.error);
+    const elapsed = ((Date.now()-t0)/1000).toFixed(1);
+    lastScanCount = data.count;
+    currentResults = data.results;
+    currentPriceSource = scanPriceSource;
+    document.getElementById('stu').textContent = data.count;
+    document.getElementById('scanMeta').textContent = `${data.count} results in ${elapsed}s`;
+    renderResults(data.results);
+    // Only verify prices against Steam when using Steam as price source
+    if (data.results.length && scanPriceSource === 'steam') startVerification(data.results);
+  } catch(e) {
+    document.getElementById('resultsWrap').innerHTML =
+      `<div class="empty"><div class="eico">⚠️</div><p style="color:var(--red)">${e.message}</p></div>`;
+  } finally {
+    btn.disabled = false; btn.innerHTML = '🔍 Scan for profits';
+  }
+}
+
+function renderResults(results) {
+  // Show/hide verification wrap
+  const verWrap = document.getElementById('verifyWrap');
+  if (verWrap) verWrap.style.display = results.length ? 'block' : 'none';
+
+  const regularResults = results.filter(r => r.contractSize !== 5);
+  const knifeResults   = results.filter(r => r.contractSize === 5);
+
+  if (!results.length) {
+    document.getElementById('resultsWrap').innerHTML =
+      '<div class="empty"><div class="eico">🤷</div><p>No profitable trade-ups found.</p><p style="margin-top:8px">Try syncing prices first, or lower the Min ROI threshold.</p></div>';
+    return;
+  }
+
+  // Generate rows with a global index (used for detail expand / verification)
+  const makeRow = (r, i) => {
+    const roiCls = r.roi >= 0 ? 'roi-pos' : 'roi-neg';
+    const roiSign = r.roi > 0 ? '+' : '';
+    const topOut = r.outputs[0];
+    const inputCondHtml = condBadge(r.inputCondition);
+    const inputNames = r.inputs.map(inp =>
+      `${inp.count}× ${inp.name.split('|')[1]?.trim()||inp.name}`
+    ).join(', ');
+
+    const top3Outs = r.outputs.slice(0, 3).map(o =>
+      `<div style="display:flex;justify-content:space-between;gap:8px;font-size:.78rem;margin-bottom:2px">
+        <span>${condBadge(o.condition)} ${o.name.split('|')[1]?.trim()||o.name}</span>
+        <span style="color:var(--accent);white-space:nowrap">${fmtUsd(o.priceUsd)} <span style="color:var(--dim)">${o.probability.toFixed(1)}%</span></span>
+       </div>`
+    ).join('');
+
+    const isKnifeContract = r.contractSize === 5;
+
+    const floatModeBadge = r.floatMode === 'low'
+      ? `<span style="font-size:.7rem;background:#3a2a10;color:var(--accent);border-radius:3px;padding:1px 5px;margin-bottom:4px;display:inline-block">LOW FLOAT</span><br>`
+      : r.floatMode === 'below_avg'
+      ? `<span style="font-size:.7rem;background:#1a2a3a;color:var(--accent2);border-radius:3px;padding:1px 5px;margin-bottom:4px;display:inline-block">BELOW AVG</span><br>`
+      : '';
+
+    const contractBadge = isKnifeContract
+      ? `<span style="font-size:.65rem;background:#2a1a3a;color:var(--r6);border-radius:3px;padding:1px 5px;margin-bottom:4px;display:inline-block">★ 5× Covert</span><br>`
+      : '';
+
+    return `<tr class="result-row" data-idx="${i}" onclick="toggleDetail(${i}, this)">
+      <td style="width:32px;color:var(--dim);font-size:.8rem">#${i+1}</td>
+      <td>
+        <span id="roi-${i}" class="${roiCls} roi-big">${roiSign}${r.roi.toFixed(1)}%</span>
+        <span id="vbadge-${i}"></span>
+      </td>
+      <td>
+        <span id="prof-${i}"><b style="${r.profitUsd >= 0 ? 'color:var(--green)' : 'color:var(--red)'}">${r.profitUsd >= 0 ? '+' : ''}${fmtUsd(r.profitUsd)}</b></span>
+        <div id="ev-${i}" style="font-size:.75rem;color:var(--dim);margin-top:2px">EV: ${fmtUsd(r.evUsd)}</div>
+      </td>
+      <td>${fmtUsd(r.costUsd)}</td>
+      <td style="font-size:.82rem">
+        <div>${inputNames}</div>
+        <div style="margin-top:3px">${inputCondHtml} ${rarityBadge(r.inputRarity)}</div>
+      </td>
+      <td style="font-size:.82rem">
+        ${topOut ? `<div><b>${fmtUsd(topOut.priceUsd)}</b> &nbsp;${topOut.name.split('|')[1]?.trim()||topOut.name}</div>
+        <div style="margin-top:3px">${condBadge(topOut.condition)} ${rarityBadge(r.outputRarity)} <span style="color:var(--dim);font-size:.75rem">${topOut.probability.toFixed(1)}%</span></div>` : '—'}
+      </td>
+      <td style="font-size:.8rem;max-width:200px">${top3Outs}</td>
+      <td style="font-size:.75rem;color:var(--dim);max-width:160px">${contractBadge}${floatModeBadge}${r.requiredFloatNote}</td>
+      <td style="color:var(--dim);font-size:.9rem">▾</td>
+    </tr>
+    <tr class="detail-row" id="detail-${i}" style="display:none">
+      <td colspan="9"></td>
+    </tr>`;
+  };
+
+  // Generate rows in two passes: regular trade-ups first, then knife/glove
+  const regularRows = regularResults.map((r, i) => makeRow(r, i));
+  const knifeRows   = knifeResults.map((r, i) => makeRow(r, regularResults.length + i));
+
+  const knifeSep = knifeResults.length
+    ? `<tr><td colspan="9" style="background:linear-gradient(90deg,#2a1a3a,transparent);padding:8px 12px;font-size:.8rem;color:var(--r6);font-weight:600;letter-spacing:.05em">★ KNIFE / GLOVE CONTRACTS (5× Covert → ★)</td></tr>`
+    : '';
+
+  const finalRows = [...regularRows, knifeSep, ...knifeRows].join('');
+
+  document.getElementById('resultsWrap').innerHTML = `
+    <table class="results-table">
+      <thead><tr>
+        <th>#</th><th>ROI</th><th>Profit / EV</th><th>Cost</th>
+        <th>Inputs</th><th>Top output</th><th>All outputs (EV)</th><th>Float / mode</th><th></th>
+      </tr></thead>
+      <tbody>${finalRows}</tbody>
+    </table>`;
+}
+
+function recalcDetail(detailEl, r) {
+  const feeRate = r.feeRate ?? (currentPriceSource === 'csfloat' ? 0.02 : 0.13);
+  let totalCost = 0;
+  detailEl.querySelectorAll('[data-inp-price]').forEach(el => {
+    const v = parseFloat(el.value) || 0;
+    const cnt = parseInt(el.dataset.inpCount) || 1;
+    totalCost += v * cnt;
+  });
+  let evRaw = 0;
+  detailEl.querySelectorAll('[data-out-price]').forEach(el => {
+    const v = parseFloat(el.value) || 0;
+    const prob = parseFloat(el.dataset.outProb) || 0;
+    evRaw += v * (prob / 100);
+  });
+  const evAfterFee = evRaw * (1 - feeRate);
+  const profit = evAfterFee - totalCost;
+  const roi = totalCost > 0 ? (profit / totalCost) * 100 : 0;
+  const feeLabel = (feeRate * 100).toFixed(0);
+  detailEl.querySelector('[data-live-cost]').textContent = fmtUsd(totalCost);
+  detailEl.querySelector('[data-live-ev]').textContent = fmtUsd(evAfterFee);
+  detailEl.querySelector('[data-live-profit]').textContent = (profit >= 0 ? '+' : '') + fmtUsd(profit);
+  const roiEl = detailEl.querySelector('[data-live-roi]');
+  roiEl.textContent = roi.toFixed(1) + '%';
+  roiEl.style.color = roi >= 0 ? 'var(--green)' : 'var(--red)';
+  const el2 = detailEl.querySelector('[data-live-cost2]');
+  if (el2) el2.textContent = fmtUsd(totalCost);
+  detailEl.querySelector('[data-live-fee]').textContent = feeLabel + '%';
+}
+
+function resetDetailPrices(detailEl, r) {
+  detailEl.querySelectorAll('[data-inp-price]').forEach(el => {
+    el.value = el.dataset.orig;
+    el.style.borderColor = 'var(--border2)';
+  });
+  detailEl.querySelectorAll('[data-out-price]').forEach(el => {
+    el.value = el.dataset.orig;
+    el.style.borderColor = 'var(--border2)';
+  });
+  recalcDetail(detailEl, r);
+}
+
+function renderDetail(r) {
+  const detailId = 'detail-inner-' + (r._idx ?? Math.random().toString(36).slice(2));
+  const feeRate = r.feeRate ?? (currentPriceSource === 'csfloat' ? 0.02 : 0.13);
+  const feeLabel = (feeRate * 100).toFixed(0);
+
+  const inputRows = r.inputs.map((inp, i) => {
+    const inpIlliquid = inp.hashName && illiquidSkins.has(inp.hashName);
+    const priceInput = inpIlliquid
+      ? `<span style="color:var(--red);font-weight:600">🚫 No listings</span>`
+      : `<input type="number" step="0.01" min="0" value="${inp.priceUsd.toFixed(2)}"
+            data-inp-price data-inp-count="${inp.count}" data-orig="${inp.priceUsd.toFixed(2)}"
+            style="width:72px;padding:2px 5px;background:var(--surf3);border:1px solid var(--border2);color:var(--text);border-radius:4px;font-size:.82rem;text-align:right"
+            oninput="this.style.borderColor=this.value!=this.dataset.orig?'var(--accent)':'var(--border2)';recalcDetail(this.closest('.detail-inner'),window._lastResult)"
+            title="Edit price to recalculate profit">`;
+    return `<div class="item-row" style="${inpIlliquid ? 'opacity:.6;' : ''}">
+      <div class="iname">
+        <b>${inp.count}× ${inp.name}</b> ${condBadge(inp.condition)}
+        <div class="sub">${inp.collection}</div>
+        ${floatBar(inp.inputFloat, inp.minFloat, inp.maxFloat)}
+      </div>
+      <div style="display:flex;align-items:center;gap:8px;flex-shrink:0">
+        <span class="iprice" style="text-align:right">${priceInput}${inpIlliquid ? '' : '<div style="font-size:.68rem;color:var(--dim)">ea</div>'}</span>
+        <a href="${currentPriceSource === 'csfloat' ? (inp.csfloatUrl||'#') : inp.marketUrl}" target="_blank" rel="noopener"
+           style="font-size:.72rem;padding:2px 7px;background:#1a2535;border:1px solid var(--accent2);color:var(--accent2);border-radius:4px;text-decoration:none;flex-shrink:0"
+           title="${currentPriceSource === 'csfloat' ? 'Buy on CSFloat' : 'Buy on Steam Market'}">${currentPriceSource === 'csfloat' ? 'CF Buy' : '🛒 Buy'}</a>
+      </div>
+    </div>`;
+  }).join('');
+
+  const outputRows = r.outputs.map(out => {
+    const verifiedCents = out._verifiedPriceCents ?? null;
+    const verifiedVol   = out._verifiedVolume ?? null;
+    let priceHtml;
+    if (verifiedCents !== null || out._illiquid) {
+      if (out._illiquid) {
+        priceHtml = `<span style="color:#f0a030">? ${out.priceUsd > 0 ? fmtUsd(out.priceUsd) : 'no price'}</span>
+          <div style="font-size:.68rem;color:#f0a030;opacity:.8">No Steam listings — using cached price</div>`;
+      } else {
+        const verUsd = verifiedCents / 100;
+        const cached = out.priceUsd;
+        const diff = cached > 0 ? ((verUsd - cached) / cached * 100) : 0;
+        const diffSign = diff > 0 ? '+' : '';
+        const diffCol = diff < -15 ? 'var(--red)' : diff > 15 ? 'var(--green)' : 'var(--dim)';
+        const volLabel = (verifiedVol != null && verifiedVol > 0)
+          ? `<span style="color:var(--dim);font-size:.7rem">${verifiedVol} sold/day</span>` : '';
+        priceHtml = `<span style="color:var(--accent)">$${verUsd.toFixed(2)}</span>
+          <span style="color:${diffCol};font-size:.72rem;margin-left:3px">${diffSign}${diff.toFixed(0)}% vs cached</span>
+          ${volLabel}
+          <div style="font-size:.68rem;color:var(--green);opacity:.8">✓ median sale price</div>`;
+      }
+    } else {
+      priceHtml = `${out.priceUsd > 0 ? fmtUsd(out.priceUsd) : '<span style="color:var(--dim)">no price</span>'}
+        <div style="font-size:.68rem;color:var(--dim);opacity:.8">⏳ listing price</div>`;
+    }
+    const dopplerBadge = out.isDoppler
+      ? `<span title="CSFloat API nerozlišuje Doppler phases — cena = nejlevnější phase (Phase 3/4, ~$150-300). Ruby/Sapphire mohou být 10-50× dražší. Klikni na CSFloat link pro konkrétní phase. Cenu uprav ručně níže."
+               style="font-size:.65rem;background:#2a1a1a;color:#e87030;border:1px solid #8a4020;border-radius:3px;padding:1px 5px;cursor:help">⚠ Cena = nejlevnější phase — uprav!</span>`
+      : '';
+    const effectivePrice = out._verifiedPriceCents != null ? out._verifiedPriceCents / 100 : out.priceUsd;
+    const outPriceInput = `<input type="number" step="0.01" min="0" value="${effectivePrice.toFixed(2)}"
+         data-out-price data-out-prob="${out.probability}" data-orig="${effectivePrice.toFixed(2)}"
+         style="width:72px;padding:2px 5px;background:var(--surf3);border:1px solid var(--border2);color:var(--text);border-radius:4px;font-size:.82rem;text-align:right"
+         oninput="this.style.borderColor=this.value!=this.dataset.orig?'var(--accent)':'var(--border2)';recalcDetail(this.closest('.detail-inner'),window._lastResult)"
+         title="Edit price to recalculate profit">`;
+    return `<div class="item-row">
+      <div class="iname">
+        <b>${out.name}</b> ${condBadge(out.condition)}
+        <div class="sub">${out.collection} ${dopplerBadge}</div>
+        ${floatBar(out.float, out.minFloat, out.maxFloat)}
+      </div>
+      <div style="display:flex;align-items:center;gap:8px;flex-shrink:0">
+        <span class="iprob">${out.probability.toFixed(1)}%</span>
+        <span class="iprice" style="text-align:right">${outPriceInput}${priceHtml.includes('⏳') ? '<div style="font-size:.65rem;color:var(--dim)">listing</div>' : ''}</span>
+        <a href="${currentPriceSource === 'csfloat' ? (out.csfloatUrl||'#') : out.marketUrl}" target="_blank" rel="noopener"
+           style="font-size:.72rem;padding:2px 7px;background:#1a2535;border:1px solid var(--border2);color:var(--dim);border-radius:4px;text-decoration:none;flex-shrink:0"
+           title="${currentPriceSource === 'csfloat' ? 'View on CSFloat' : 'View on Steam Market'}">${currentPriceSource === 'csfloat' ? 'CSFloat' : '📈 Market'}</a>
+      </div>
+    </div>`;
+  }).join('');
+
+  const totalCost = r.inputs.reduce((s,i)=>s+i.priceUsd*i.count,0);
+  window._lastResult = r;
+
+  return `<div class="detail-inner">
+    <div class="detail-section">
+      <div class="sec-title" style="display:flex;justify-content:space-between;align-items:center">
+        <span>Inputs (${r.contractSize} skins) — Total: <b data-live-cost>${fmtUsd(totalCost)}</b></span>
+        <button onclick="resetDetailPrices(this.closest('.detail-inner'),window._lastResult)"
+          style="font-size:.72rem;padding:2px 8px;background:var(--surf3);border:1px solid var(--border2);color:var(--dim);border-radius:4px;cursor:pointer">↺ Reset cen</button>
+      </div>
+      ${inputRows}
+      <div class="float-note">🎯 ${r.requiredFloatNote}
+        <div style="margin-top:6px;font-size:.75rem;opacity:.75">${
+          r.floatMode === 'low' ? '⚠️ Low float — you need to actively filter listings by float value.'
+          : r.floatMode === 'below_avg' ? '🔍 Below-average float — a light filter in the Steam Market is enough (sort by float).'
+          : '📊 Realistic — based on average market float, no special filtering needed.'
+        }</div>
+      </div>
+    </div>
+    <div class="detail-section">
+      <div class="sec-title">Possible outputs</div>
+      ${outputRows}
+      <div style="margin-top:10px;font-size:.82rem;background:var(--surf3);border:1px solid var(--border);border-radius:6px;padding:10px 14px;display:flex;gap:20px;flex-wrap:wrap;align-items:center">
+        <span style="color:var(--dim)">Po poplatku <b data-live-fee>${feeLabel}</b>%:</span>
+        <span>EV: <b style="color:var(--accent)" data-live-ev>${fmtUsd(r.evUsd)}</b></span>
+        <span>Profit: <b style="color:var(--green)" data-live-profit>${(r.profitUsd >= 0 ? '+' : '') + fmtUsd(r.profitUsd)}</b></span>
+        <span>ROI: <b data-live-roi style="color:${r.roi >= 0 ? 'var(--green)' : 'var(--red)'}">${r.roi.toFixed(1)}%</b></span>
+        <span style="font-size:.75rem;color:var(--dim)">Cost: <span data-live-cost2>${fmtUsd(totalCost)}</span></span>
+      </div>
+    </div>
+  </div>`;
+}
+
+function toggleDetail(idx, row) {
+  const detail = document.getElementById('detail-' + idx);
+  const isOpen = detail.style.display !== 'none';
+  // Close previous
+  if (expandedRow !== null && expandedRow !== idx) {
+    document.getElementById('detail-' + expandedRow).style.display = 'none';
+    document.querySelector(`[data-idx="${expandedRow}"]`)?.classList.remove('expanded');
+  }
+  if (!isOpen) {
+    // Re-render detail from currentResults so verified prices are shown
+    const r = currentResults[idx];
+    if (r) detail.querySelector('td').innerHTML = renderDetail(r);
+  }
+  detail.style.display = isOpen ? 'none' : 'table-row';
+  row.classList.toggle('expanded', !isOpen);
+  expandedRow = isOpen ? null : idx;
+}
+
+// ── Sync ──────────────────────────────────────────────────────────
+let syncCtrl = null;
+function logMsg(msg, cls='') {
+  const box = document.getElementById('logBox');
+  const d = document.createElement('div');
+  d.className = 'log-line ' + cls;
+  d.textContent = '[' + new Date().toLocaleTimeString() + '] ' + msg;
+  box.appendChild(d);
+  box.scrollTop = box.scrollHeight;
+}
+
+function startSync() {
+  const btn = document.getElementById('syncBtn');
+  const stop = document.getElementById('stopBtn');
+  btn.disabled = true; stop.disabled = false;
+  document.getElementById('logBox').innerHTML = '';
+  document.getElementById('pbar').style.width = '0%';
+  document.getElementById('progressLabel').textContent = 'Starting…';
+
+  const ctrl = new AbortController();
+  syncCtrl = ctrl;
+
+  fetch(API+'/api/sync', {
+    method: 'POST',
+    headers: {'Content-Type':'application/json'},
+    body: JSON.stringify({
+      skipCollections: document.getElementById('skipCollections').checked,
+      priceSource: document.getElementById('priceSource').value,
+    }),
+    signal: ctrl.signal,
+  }).then(async res => {
+    const reader = res.body.getReader();
+    const dec = new TextDecoder();
+    let buf = '';
+    while(true) {
+      const { done, value } = await reader.read();
+      if (done) break;
+      buf += dec.decode(value, { stream: true });
+      const lines = buf.split('\n'); buf = lines.pop();
+      for (const line of lines) {
+        if (!line.startsWith('data:')) continue;
+        try {
+          const ev = JSON.parse(line.slice(5));
+          if (ev.type === 'log')      logMsg(ev.msg);
+          if (ev.type === 'error')    logMsg(ev.msg, 'log-err');
+          if (ev.type === 'progress') {
+            document.getElementById('progressLabel').textContent = 'Fetching prices…';
+            document.getElementById('pbar').style.width = ev.pct + '%';
+            if (ev.sub) document.getElementById('progressSub').textContent = ev.sub;
+          }
+          if (ev.type === 'done') {
+            logMsg(ev.msg, 'log-ok');
+            document.getElementById('pbar').style.width = '100%';
+            document.getElementById('progressLabel').textContent = 'Done!';
+            loadStatus();
+          }
+        } catch {}
+      }
+    }
+  }).catch(e => {
+    if (e.name !== 'AbortError') logMsg('Error: ' + e.message, 'log-err');
+  }).finally(() => {
+    btn.disabled = false; stop.disabled = true; syncCtrl = null;
+  });
+}
+
+function stopSync() {
+  if (syncCtrl) { syncCtrl.abort(); logMsg('Stopped.', 'log-err'); }
+}
+
+function updateSourceInfo() {
+  const src = document.getElementById('priceSource')?.value;
+  const el = document.getElementById('sourceInfo');
+  if (!el) return;
+  if (src === 'csfloat') {
+    el.innerHTML = '✅ <b>Recommended.</b> Single API call to <b>csfloat.com/api/v1/listings/price-list</b> — returns all CS2 items with min price and listing count. Completes in ~5 seconds.';
+  } else {
+    el.innerHTML = '⏱ Fetches directly from <b>steamcommunity.com/market</b>. Takes ~8 min (300+ pages × 1.5s). May get rate-limited.';
+  }
+}
+
+// ── Auto-sync ─────────────────────────────────────────────────────
+let autoSyncTimer = null;
+let autoSyncNext = null;
+function setAutoSync() {
+  clearInterval(autoSyncTimer);
+  autoSyncTimer = null; autoSyncNext = null;
+  const mins = parseInt(document.getElementById('autoSyncInterval').value);
+  const el = document.getElementById('autoSyncStatus');
+  if (!mins) { el.textContent = ''; return; }
+  const ms = mins * 60 * 1000;
+  autoSyncNext = Date.now() + ms;
+  el.textContent = `Next sync in ${mins}m`;
+  autoSyncTimer = setInterval(() => {
+    startSync();
+    autoSyncNext = Date.now() + ms;
+  }, ms);
+  // Update countdown every 30s
+  setInterval(() => {
+    if (!autoSyncNext) return;
+    const rem = Math.round((autoSyncNext - Date.now()) / 60000);
+    if (el) el.textContent = `Next sync in ${rem > 0 ? rem+'m' : '< 1m'}`;
+  }, 30000);
+}
+
+function goSyncAndStart() {
+  document.querySelector('[data-page="sync"]').click();
+  setTimeout(startSync, 200);
+}
+// Start auto-sync timer on load (default 30 min)
+setAutoSync();
+
+// ── Float Calculator ──────────────────────────────────────────────
+const slots = []; // [{skinId, skinName, minFloat, maxFloat}]
+
+function initSlots() {
+  for (let i = 0; i < 10; i++) addSlot();
+}
+
+function addSlot() {
+  if (slots.length >= 10) return;
+  const i = slots.length;
+  slots.push({ skinId: null });
+  const row = document.createElement('div');
+  row.className = 'slot-row';
+  row.id = 'slot-' + i;
+  row.innerHTML = `
+    <span class="slot-num">${i+1}</span>
+    <div class="ac-wrap">
+      <input class="ac-input" id="si-${i}" placeholder="Search skin…" oninput="searchSkin(${i},this.value)" autocomplete="off">
+      <div class="ac-list" id="sl-${i}" style="display:none"></div>
+    </div>
+    <div class="range-badge" id="sr-${i}">— — —</div>
+    <input class="float-input" id="sf-${i}" type="number" step="0.0001" min="0" max="1" placeholder="float">
+    <button class="slot-del" onclick="clearSlot(${i})">×</button>`;
+  document.getElementById('slots').appendChild(row);
+}
+
+function clearSlot(i) {
+  slots[i] = { skinId: null };
+  document.getElementById('si-'+i).value = '';
+  document.getElementById('sr-'+i).textContent = '— — —';
+  document.getElementById('sf-'+i).value = '';
+}
+
+function clearSlots() {
+  slots.length = 0;
+  document.getElementById('slots').innerHTML = '';
+  document.getElementById('calcOut').innerHTML = '<div class="empty"><div class="eico">🎲</div><p>Add skins and click Calculate.</p></div>';
+  initSlots();
+}
+
+async function searchSkin(i, q) {
+  if (q.length < 2) { document.getElementById('sl-'+i).style.display='none'; return; }
+  const data = await fetch(API+'/api/skins/search?q='+encodeURIComponent(q)).then(r=>r.json());
+  const list = document.getElementById('sl-'+i);
+  if (!data.length) { list.style.display='none'; return; }
+  list.innerHTML = data.map(s => `
+    <div class="ac-item" onclick="pickSkin(${i},'${s.id}',${JSON.stringify(s.name)},${s.min_float},${s.max_float})">
+      ${s.name}
+      <div class="ac-sub">${s.collection_name} · ${s.min_float}–${s.max_float}</div>
+    </div>`).join('');
+  list.style.display = 'block';
+}
+
+function pickSkin(i, id, name, minF, maxF) {
+  slots[i] = { skinId: id, skinName: name, minFloat: minF, maxFloat: maxF };
+  document.getElementById('si-'+i).value = name;
+  document.getElementById('sr-'+i).textContent = minF + ' – ' + maxF;
+  const midF = ((minF + maxF) / 2).toFixed(4);
+  document.getElementById('sf-'+i).value = midF;
+  document.getElementById('sf-'+i).min = minF;
+  document.getElementById('sf-'+i).max = maxF;
+  document.getElementById('sl-'+i).style.display = 'none';
+}
+
+async function calcFloat() {
+  const inputs = slots
+    .map((s, i) => ({
+      skinId: s.skinId,
+      float: parseFloat(document.getElementById('sf-'+i)?.value || '0'),
+    }))
+    .filter(x => x.skinId && !isNaN(x.float));
+
+  if (!inputs.length) { alert('Add at least one input skin.'); return; }
+
+  document.getElementById('calcOut').innerHTML = '<div class="empty"><span class="spin" style="width:28px;height:28px;border-width:3px"></span></div>';
+
+  try {
+    const data = await fetch(API+'/api/float/calculate', {
+      method: 'POST', headers: {'Content-Type':'application/json'},
+      body: JSON.stringify({ inputs }),
+    }).then(r => r.json());
+
+    if (data.error) throw new Error(data.error);
+    if (!data.results.length) {
+      document.getElementById('calcOut').innerHTML = '<div class="empty"><div class="eico">❌</div><p>No outputs found. Ensure skins belong to collections with a next rarity tier.</p></div>';
+      return;
+    }
+
+    const rows = data.results.map(out => `
+      <div class="item-row">
+        <div class="iname">
+          <b>${out.name}</b> ${condBadge(out.condition)}
+          <div class="sub">${out.collection}</div>
+          ${floatBar(out.float, out.minFloat, out.maxFloat)}
+        </div>
+        <div class="iprob">${(out.probability*100).toFixed(1)}%</div>
+        <div class="iprice">${fmtUsd(out.priceUsd)}</div>
+      </div>`).join('');
+
+    document.getElementById('calcOut').innerHTML = `
+      <div style="font-size:.8rem;color:var(--dim);margin-bottom:12px">
+        Avg normalized: <b style="color:var(--text)">${data.avgNorm.toFixed(4)}</b> &nbsp;|&nbsp;
+        EV after tax: <b style="color:var(--accent)">${fmtUsd(data.evAfterTax)}</b>
+      </div>
+      <div class="sec-title" style="margin-bottom:10px">Outputs (${data.results.length})</div>
+      ${rows}`;
+  } catch(e) {
+    document.getElementById('calcOut').innerHTML = `<div class="empty"><div class="eico">⚠️</div><p style="color:var(--red)">${e.message}</p></div>`;
+  }
+}
+
+// Close autocomplete on outside click
+document.addEventListener('click', e => {
+  if (!e.target.closest('.ac-wrap')) {
+    document.querySelectorAll('.ac-list').forEach(l => l.style.display='none');
+  }
+});
+</script>
+</body>
+</html>
