@@ -41,8 +41,14 @@ import { config } from '../config.js';
 // Float helpers
 // ─────────────────────────────────────────────────────────────────
 
-export type FloatMode = 'mid' | 'below_avg' | 'low';
-const FLOAT_MODE_PCT: Record<FloatMode, number> = { mid: 0.50, below_avg: 0.25, low: 0.10 };
+export type FloatMode = 'low' | 'below_avg' | 'mid' | 'above_avg' | 'high';
+const FLOAT_MODE_PCT: Record<FloatMode, number> = {
+  low:       0.10, // 10th pct — active low-float hunting, cheapest condition but rarer
+  below_avg: 0.25, // 25th pct — light filter, below average float
+  mid:       0.50, // 50th pct — average market float, no special filter needed
+  above_avg: 0.75, // 75th pct — above average float, cheaper skins (less float premium)
+  high:      0.90, // 90th pct — near top of condition range, cheapest input price
+};
 
 /** Minimum active listings required for an OUTPUT skin to contribute to EV.
  *  Skins with fewer listings have unreliable/artificial prices that can't be sold at scale. */
@@ -251,7 +257,9 @@ function evaluateWithSkins(
     ? inputsByAlloc.map(ic => ic.skin.name.split('|')[1]?.trim() ?? ic.skin.name).join(' / ')
     : (inputsByAlloc[0].skin.name.split('|')[1]?.trim() ?? inputsByAlloc[0].skin.name);
   const requiredFloatNote = floatMode === 'low'
-    ? `${condLabel} (${skinLabel}) — search float ≤ ${usedFloat.toFixed(3)}`
+    ? `${condLabel} (${skinLabel}) — float ≤ ${usedFloat.toFixed(3)}`
+    : floatMode === 'high' || floatMode === 'above_avg'
+    ? `${condLabel} (${skinLabel}) — float ≥ ${usedFloat.toFixed(3)} (${effMin.toFixed(3)}–${effMax.toFixed(3)})`
     : `${condLabel} (${skinLabel}) — avg ~${usedFloat.toFixed(3)} (${effMin.toFixed(3)}–${effMax.toFixed(3)})`;
 
   return {
@@ -434,7 +442,9 @@ function evaluateCaseTradeUp(
   const effMin = Math.max(dMin, inputSkin.minFloat);
   const effMax = Math.min(dMax, inputSkin.maxFloat);
   const requiredFloatNote = floatMode === 'low'
-    ? `${condition} (${inputSkin.patternName}) — search float ≤ ${inputFloat.toFixed(3)}`
+    ? `${condition} (${inputSkin.patternName}) — float ≤ ${inputFloat.toFixed(3)}`
+    : floatMode === 'high' || floatMode === 'above_avg'
+    ? `${condition} (${inputSkin.patternName}) — float ≥ ${inputFloat.toFixed(3)} (${effMin.toFixed(3)}–${effMax.toFixed(3)})`
     : `${condition} (${inputSkin.patternName}) — avg ~${inputFloat.toFixed(3)} (${effMin.toFixed(3)}–${effMax.toFixed(3)})`;
 
   return {

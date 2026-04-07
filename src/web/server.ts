@@ -91,7 +91,7 @@ export function createServer(port = parseInt(process.env.PORT || '3000', 10)) {
       const minRoi     = req.query.minRoi     ? parseFloat(req.query.minRoi as string)    : config.minRoiThreshold;
       const maxResults = req.query.maxResults ? parseInt(req.query.maxResults as string)  : config.maxResults;
       const statTrak   = req.query.statTrak   === 'true';
-      const floatMode  = (['low', 'below_avg', 'mid'] as const)
+      const floatMode  = (['low', 'below_avg', 'mid', 'above_avg', 'high'] as const)
         .find(m => m === req.query.floatMode) ?? 'mid';
       const priceSource = (['steam', 'csfloat'] as const)
         .find(s => s === req.query.priceSource) ?? 'csfloat';

@@ -211,9 +211,11 @@ nav{background:var(--surf);border-bottom:1px solid var(--border);display:flex;al
     </div>
     <div class="field"><label title="Controls which float value is assumed for inputs within their condition range.">Float mode</label>
       <select id="floatMode">
-        <option value="mid">Realistic — avg float (50th pct)</option>
-        <option value="below_avg" selected>Below avg — light filter (25th pct)</option>
         <option value="low">Low float — active hunting (10th pct)</option>
+        <option value="below_avg">Below avg — light filter (25th pct)</option>
+        <option value="mid" selected>Realistic — avg float (50th pct)</option>
+        <option value="above_avg">Above avg — cheaper inputs (75th pct)</option>
+        <option value="high">High float — cheapest inputs (90th pct)</option>
       </select>
     </div>
     <div class="field"><label title="Which price source to use for this scan. Must match the source you last synced.">Price source</label>
@@ -823,6 +825,10 @@ function renderResults(results) {
       ? `<span style="font-size:.7rem;background:#3a2a10;color:var(--accent);border-radius:3px;padding:1px 5px;margin-bottom:4px;display:inline-block">LOW FLOAT</span><br>`
       : r.floatMode === 'below_avg'
       ? `<span style="font-size:.7rem;background:#1a2a3a;color:var(--accent2);border-radius:3px;padding:1px 5px;margin-bottom:4px;display:inline-block">BELOW AVG</span><br>`
+      : r.floatMode === 'above_avg'
+      ? `<span style="font-size:.7rem;background:#1a3a1a;color:#7ecf7e;border-radius:3px;padding:1px 5px;margin-bottom:4px;display:inline-block">ABOVE AVG</span><br>`
+      : r.floatMode === 'high'
+      ? `<span style="font-size:.7rem;background:#1a2a10;color:#aede7e;border-radius:3px;padding:1px 5px;margin-bottom:4px;display:inline-block">HIGH FLOAT</span><br>`
       : '';
 
     const contractBadge = isKnifeContract
@@ -1064,9 +1070,11 @@ function renderDetail(r) {
       ${inputRows}
       <div class="float-note">🎯 ${r.requiredFloatNote}
         <div style="margin-top:6px;font-size:.75rem;opacity:.75">${
-          r.floatMode === 'low' ? '⚠️ Low float — you need to actively filter listings by float value.'
-          : r.floatMode === 'below_avg' ? '🔍 Below-average float — a light filter in the Steam Market is enough (sort by float).'
-          : '📊 Realistic — based on average market float, no special filtering needed.'
+          r.floatMode === 'low'       ? '⚠️ Low float — actively filter listings by float value. Fewer available, but cheapest output condition.'
+          : r.floatMode === 'below_avg' ? '🔍 Below-average float — light filter in Steam Market/CSFloat (sort by float ascending).'
+          : r.floatMode === 'mid'       ? '📊 Realistic — based on average market float, no special filtering needed.'
+          : r.floatMode === 'above_avg' ? '💰 Above-average float — filter for higher float listings (cheaper, less float premium). Output condition may be one tier lower.'
+          :                               '💰 High float — buy near the top of the condition range (cheapest skins). Output will be high float / lower condition.'
         }</div>
       </div>
     </div>

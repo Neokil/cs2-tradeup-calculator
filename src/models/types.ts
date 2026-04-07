@@ -55,7 +55,7 @@ export interface TradeUpResult {
   roi: number; // percentage
   inputRarity: Rarity;
   outputRarity: Rarity;
-  floatPosition?: 'low' | 'below_avg' | 'mid' | 'high'; // which float scenario produced this result
+  floatPosition?: 'low' | 'below_avg' | 'mid' | 'above_avg' | 'high'; // which float scenario produced this result
 }
 
 export interface CollectionAllocation {
