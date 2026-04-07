@@ -311,9 +311,10 @@ export function findProfitableTradeUps(options: FinderOptions = {}): EvaluatedTr
       continue;
     }
 
-    // Cap 2-collection combos: C(n,2)×9 allocations explodes past ~40 collections.
-    // Above that threshold, only use single-collection trade-ups to stay within memory.
-    const maxColls = withPrices.length > 40 ? 1 : 2;
+    // Allow 2-collection combos up to 150 eligible collections.
+    // upperBound/lowerBound pruning eliminates most unpromising pairs quickly,
+    // so even C(89,2)=3916 pairs typically prune down to a few hundred evaluations.
+    const maxColls = withPrices.length > 150 ? 1 : 2;
     console.log(`${Rarity[inputRarity]} → ${Rarity[outputRarity]}: ${withPrices.length} eligible collections (maxColls=${maxColls})`);
 
     for (const allocations of generateAllocations(withPrices, 10, maxColls)) {

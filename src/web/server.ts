@@ -99,7 +99,7 @@ export function createServer(port = parseInt(process.env.PORT || '3000', 10)) {
       const results = findProfitableTradeUps({ minRoi, maxResults, statTrak, floatMode, priceSource });
       _scanPriceSource = priceSource;
       const feeRate = priceSource === 'csfloat' ? config.csfloatFeeRate : config.steamTaxRate;
-      res.json({ results: results.map(serializeResult), count: results.length, feeRate, priceSource });
+      res.json({ results: results.map(serializeResult), count: results.length, feeRate, priceSource, hasCsfloatKey: !!config.csfloatApiKey });
     } catch (e: any) { res.status(500).json({ error: e.message }); }
   });
 
@@ -272,6 +272,97 @@ export function createServer(port = parseInt(process.env.PORT || '3000', 10)) {
     } catch (e: any) { res.status(500).json({ error: e.message }); }
   });
 
+  // ── POST /api/buy-orders/batch ────────────────────────────────────────────
+  // Streams the highest CSFloat buy-order price for each output skin.
+  // Body: { items: Array<{ defIndex, paintIndex, condition, hashName, statTrak? }> }
+  // Requires CSFLOAT_API_KEY for auth (same as Doppler phase fetcher).
+  app.post('/api/buy-orders/batch', async (req, res) => {
+    res.setHeader('Content-Type', 'text/event-stream');
+    res.setHeader('Cache-Control', 'no-cache');
+    res.setHeader('Connection', 'keep-alive');
+    const send = (data: object) => res.write(`data: ${JSON.stringify(data)}\n\n`);
+
+    const { items } = req.body as {
+      items: Array<{
+        defIndex: number | null;
+        paintIndex: number | null;
+        condition: string;
+        hashName: string;
+        statTrak?: boolean;
+        estimatedFloat?: number;
+      }>;
+    };
+
+    if (!items?.length) { send({ type: 'done' }); res.end(); return; }
+
+    // Deduplicate by defIndex:paintIndex:statTrak
+    const unique = new Map<string, typeof items[0]>();
+    for (const item of items) {
+      if (item.defIndex == null || item.paintIndex == null) continue;
+      const key = `${item.defIndex}:${item.paintIndex}:${item.statTrak ? 1 : 0}`;
+      if (!unique.has(key)) unique.set(key, item);
+    }
+
+    const total = unique.size;
+    send({ type: 'start', total });
+    let done = 0;
+
+    for (const [, item] of unique) {
+      try {
+        const url = new URL('https://csfloat.com/api/v1/listings');
+        url.searchParams.set('def_index',   String(item.defIndex));
+        url.searchParams.set('paint_index', String(item.paintIndex));
+        url.searchParams.set('type',        'buy_order');
+        url.searchParams.set('sort_by',     'highest_price');
+        url.searchParams.set('limit',       '10');
+        url.searchParams.set('quality',     item.statTrak ? '12' : '3');
+
+        const headers: Record<string, string> = {
+          'User-Agent': 'Mozilla/5.0 (compatible; CS2TradeUpCalc/1.0)',
+        };
+        if (config.csfloatApiKey) headers['Authorization'] = config.csfloatApiKey;
+
+        const response = await fetch(url.toString(), { headers });
+        let buyOrderCents: number | null = null;
+        let buyOrderCount = 0;
+
+        if (response.ok) {
+          const json = await response.json() as { data?: Array<{ price: number; min_float?: number; max_float?: number }> };
+          const orders = json.data ?? [];
+          buyOrderCount = orders.length;
+
+          // If we know the estimated output float, prefer orders that accept it
+          const outFloat = item.estimatedFloat;
+          if (outFloat != null && orders.length > 0) {
+            // Orders are sorted highest_price first; find highest that accepts our float
+            const matching = orders.find(o =>
+              (o.min_float == null || o.min_float <= outFloat) &&
+              (o.max_float == null || o.max_float >= outFloat)
+            );
+            buyOrderCents = matching?.price ?? orders[0]?.price ?? null;
+          } else {
+            buyOrderCents = orders[0]?.price ?? null;
+          }
+        }
+
+        send({
+          type: 'price',
+          hashName: item.hashName,
+          buyOrderCents,
+          buyOrderCount,
+          progress: (done + 1) / total,
+        });
+      } catch {
+        send({ type: 'price', hashName: item.hashName, buyOrderCents: null, buyOrderCount: 0, progress: (done + 1) / total });
+      }
+      done++;
+      if (done < total) await new Promise<void>(r => setTimeout(r, 700));
+    }
+
+    send({ type: 'done' });
+    res.end();
+  });
+
   app.listen(port, () => {
     console.log(`\nCS2 Trade-Up Calculator → http://localhost:${port}\n`);
   });
@@ -397,6 +488,8 @@ function serializeResult(r: EvaluatedTradeUp) {
           isDoppler,
           // hasPhasePrices: true when we have per-phase prices (API key set)
           hasPhasePrices: isDoppler && !!config.csfloatApiKey,
+          defIndex: o.skin.defIndex ?? null,
+          paintIndex: o.skin.paintIndex != null ? Number(o.skin.paintIndex) : null,
           marketUrl: steamMarketUrl(o.skin.weaponName, o.skin.patternName, o.condition, statTrak),
           csfloatUrl: csfloatUrl(o.skin, o.condition, statTrak),
           hashName: buildMarketHashName(o.skin.weaponName, o.skin.patternName, o.condition, statTrak),

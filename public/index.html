@@ -204,8 +204,8 @@ nav{background:var(--surf);border-bottom:1px solid var(--border);display:flex;al
     <button onclick="goSyncAndStart()" style="margin-left:auto;padding:4px 12px;background:var(--accent);color:#000;border:none;border-radius:4px;cursor:pointer;font-size:.8rem;font-weight:600">Sync now</button>
   </div>
   <div class="controls">
-    <div class="field"><label>Min ROI %</label><input type="number" id="minRoi" value="5" min="0" max="999" style="width:80px"></div>
-    <div class="field"><label>Max results</label><input type="number" id="maxRes" value="100" min="1" max="500" style="width:80px"></div>
+    <div class="field"><label>Min ROI %</label><input type="number" id="minRoi" value="100" min="0" max="999" style="width:80px"></div>
+    <div class="field"><label>Max results</label><input type="number" id="maxRes" value="50" min="1" max="500" style="width:80px"></div>
     <div class="field"><label>StatTrak™</label>
       <select id="statTrak"><option value="false">No</option><option value="true">Yes</option></select>
     </div>
@@ -223,6 +223,10 @@ nav{background:var(--surf);border-bottom:1px solid var(--border);display:flex;al
       </select>
     </div>
     <button class="btn btn-primary" id="scanBtn" onclick="runScan()">🔍 Scan for profits</button>
+    <button class="btn btn-secondary" id="buyOrderBtn" onclick="fetchBuyOrders()"
+            style="display:none" title="Fetch highest CSFloat buy-order prices for all output skins (requires CSFLOAT_API_KEY)">
+      📊 Fetch buy orders
+    </button>
     <span id="scanMeta" style="font-size:.8rem;color:var(--dim);align-self:center"></span>
   </div>
   <!-- Live price verification progress -->
@@ -437,10 +441,14 @@ const TAX = 0.13;
 let verifyCtrl = null;
 let currentResults = [];
 let currentPriceSource = 'csfloat'; // updated on each scan
+let hasCsfloatKey = false;
 // hashName → { medianCents, volume } once verified
 const verifiedPrices = new Map();
 // hashName → true if illiquid (no listings)
 const illiquidSkins = new Set();
+// Buy order prices: hashName → { buyOrderCents, buyOrderCount }
+const buyOrderPrices = new Map();
+let buyOrderCtrl = null;
 
 function recomputeResult(r, overrides) {
   // overrides: Map<hashName, medianPriceCents>
@@ -640,6 +648,98 @@ function startVerification(results) {
   });
 }
 
+// ── Buy Orders ────────────────────────────────────────────────────
+async function fetchBuyOrders() {
+  if (!currentResults.length) return;
+  const btn = document.getElementById('buyOrderBtn');
+
+  // Collect all unique output skins that have defIndex + paintIndex
+  const statTrak = document.getElementById('statTrak').value === 'true';
+  const items = [];
+  const seen = new Set();
+  for (const r of currentResults) {
+    for (const o of r.outputs) {
+      if (o.defIndex == null || o.paintIndex == null) continue;
+      const key = `${o.defIndex}:${o.paintIndex}:${statTrak ? 1 : 0}`;
+      if (seen.has(key)) continue;
+      seen.add(key);
+      items.push({
+        defIndex: o.defIndex,
+        paintIndex: o.paintIndex,
+        condition: o.condition,
+        hashName: o.hashName,
+        estimatedFloat: o.float,
+        statTrak,
+      });
+    }
+  }
+
+  if (!items.length) {
+    alert('No output skins have def_index/paint_index data. Try re-syncing skins first.');
+    return;
+  }
+
+  if (buyOrderCtrl) buyOrderCtrl.abort();
+  buyOrderCtrl = new AbortController();
+  btn.disabled = true;
+  btn.innerHTML = '<span class="spin"></span> Fetching…';
+
+  try {
+    const res = await fetch(API + '/api/buy-orders/batch', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ items }),
+      signal: buyOrderCtrl.signal,
+    });
+
+    const reader = res.body.getReader();
+    const dec = new TextDecoder();
+    let buf = '', total = items.length, done = 0;
+
+    while (true) {
+      const { done: rdone, value } = await reader.read();
+      if (rdone) break;
+      buf += dec.decode(value, { stream: true });
+      const lines = buf.split('\n'); buf = lines.pop();
+      for (const line of lines) {
+        if (!line.startsWith('data:')) continue;
+        try {
+          const ev = JSON.parse(line.slice(5));
+          if (ev.type === 'start') { total = ev.total; }
+          if (ev.type === 'price') {
+            done++;
+            btn.innerHTML = `<span class="spin"></span> ${done}/${total}`;
+            if (ev.buyOrderCents != null) {
+              buyOrderPrices.set(ev.hashName, {
+                buyOrderCents: ev.buyOrderCents,
+                buyOrderCount: ev.buyOrderCount ?? 0,
+              });
+              // Refresh open detail panel if it contains this skin
+              if (expandedRow !== null) {
+                const r = currentResults[expandedRow];
+                if (r && r.outputs.some(o => o.hashName === ev.hashName)) {
+                  const detail = document.getElementById('detail-' + expandedRow);
+                  if (detail && detail.style.display !== 'none')
+                    detail.querySelector('td').innerHTML = renderDetail(r);
+                }
+              }
+            }
+          }
+          if (ev.type === 'done') {
+            btn.disabled = false;
+            btn.innerHTML = `📊 Buy orders ✓ (${buyOrderPrices.size})`;
+          }
+        } catch {}
+      }
+    }
+  } catch (e) {
+    if (e.name !== 'AbortError') {
+      btn.disabled = false;
+      btn.innerHTML = '📊 Fetch buy orders';
+    }
+  }
+}
+
 // ── Scan ──────────────────────────────────────────────────────────
 let expandedRow = null;
 
@@ -664,9 +764,18 @@ async function runScan() {
     lastScanCount = data.count;
     currentResults = data.results;
     currentPriceSource = scanPriceSource;
+    hasCsfloatKey = data.hasCsfloatKey ?? false;
+    buyOrderPrices.clear();
     document.getElementById('stu').textContent = data.count;
     document.getElementById('scanMeta').textContent = `${data.count} results in ${elapsed}s`;
     renderResults(data.results);
+    // Show buy-order button when CSFloat key is present and we have results
+    const boBtn = document.getElementById('buyOrderBtn');
+    if (boBtn) {
+      boBtn.style.display = (hasCsfloatKey && scanPriceSource === 'csfloat' && data.count > 0) ? 'inline-flex' : 'none';
+      boBtn.disabled = false;
+      boBtn.innerHTML = '📊 Fetch buy orders';
+    }
     // Only verify prices against Steam when using Steam as price source
     if (data.results.length && scanPriceSource === 'steam') startVerification(data.results);
   } catch(e) {
@@ -797,6 +906,34 @@ function recalcDetail(detailEl, r) {
   detailEl.querySelector('[data-live-fee]').textContent = feeLabel + '%';
 }
 
+/** Apply a single buy-order price to the nearest output price input */
+function applyBuyOrder(btn, boUsd) {
+  const row = btn.closest('.item-row');
+  const inp = row?.querySelector('[data-out-price]');
+  if (!inp) return;
+  inp.value = boUsd.toFixed(2);
+  inp.style.borderColor = 'var(--accent)';
+  recalcDetail(inp.closest('.detail-inner'), window._lastResult);
+}
+
+/** Apply all available buy-order prices to every output price input in the detail panel */
+function applyAllBuyOrders(detailEl, r) {
+  detailEl.querySelectorAll('[data-out-price]').forEach(inp => {
+    // Find the hashName for this output row via the CSFloat link
+    const link = inp.closest('.item-row')?.querySelector('a[href*="csfloat"]');
+    if (!link) return;
+    // Match by iterating r.outputs and finding the one whose price matches the original
+    const orig = parseFloat(inp.dataset.orig);
+    const match = r.outputs.find(o => Math.abs(o.priceUsd - orig) < 0.01 || (o._verifiedPriceCents != null && Math.abs(o._verifiedPriceCents / 100 - orig) < 0.01));
+    if (!match) return;
+    const boEntry = buyOrderPrices.get(match.hashName);
+    if (!boEntry) return;
+    inp.value = (boEntry.buyOrderCents / 100).toFixed(2);
+    inp.style.borderColor = '#4a8a4a';
+  });
+  recalcDetail(detailEl, r);
+}
+
 function resetDetailPrices(detailEl, r) {
   detailEl.querySelectorAll('[data-inp-price]').forEach(el => {
     el.value = el.dataset.orig;
@@ -876,6 +1013,19 @@ function renderDetail(r) {
          style="width:72px;padding:2px 5px;background:var(--surf3);border:1px solid var(--border2);color:var(--text);border-radius:4px;font-size:.82rem;text-align:right"
          oninput="this.style.borderColor=this.value!=this.dataset.orig?'var(--accent)':'var(--border2)';recalcDetail(this.closest('.detail-inner'),window._lastResult)"
          title="Edit price to recalculate profit">`;
+
+    // Buy order price for this output skin
+    const boEntry = buyOrderPrices.get(out.hashName);
+    const boUsd = boEntry ? boEntry.buyOrderCents / 100 : null;
+    const boHtml = boUsd != null
+      ? `<div style="margin-top:3px;font-size:.7rem;display:flex;align-items:center;gap:6px;flex-wrap:wrap">
+           <span style="color:#7ecf7e;font-weight:600">📥 Best buy order: $${boUsd.toFixed(2)}</span>
+           <span style="color:var(--dim)">${boEntry.buyOrderCount} order${boEntry.buyOrderCount !== 1 ? 's' : ''}</span>
+           <button onclick="applyBuyOrder(this,${boUsd.toFixed(2)})" title="Apply buy-order price to this output"
+             style="font-size:.68rem;padding:1px 6px;background:#1a3a1a;border:1px solid #4a8a4a;color:#7ecf7e;border-radius:3px;cursor:pointer;line-height:1.4">Apply</button>
+         </div>`
+      : (hasCsfloatKey ? '' : '');
+
     return `<div class="item-row">
       <div class="iname">
         <b>${out.name}</b> ${condBadge(out.condition)}
@@ -884,7 +1034,11 @@ function renderDetail(r) {
       </div>
       <div style="display:flex;align-items:center;gap:8px;flex-shrink:0">
         <span class="iprob">${out.probability.toFixed(1)}%</span>
-        <span class="iprice" style="text-align:right">${outPriceInput}${priceHtml.includes('⏳') ? '<div style="font-size:.65rem;color:var(--dim)">listing</div>' : ''}</span>
+        <span class="iprice" style="text-align:right">
+          ${outPriceInput}
+          ${boHtml}
+          ${priceHtml.includes('⏳') ? '<div style="font-size:.65rem;color:var(--dim)">listing</div>' : ''}
+        </span>
         <a href="${currentPriceSource === 'csfloat' ? (out.csfloatUrl||'#') : out.marketUrl}" target="_blank" rel="noopener"
            style="font-size:.72rem;padding:2px 7px;background:#1a2535;border:1px solid var(--border2);color:var(--dim);border-radius:4px;text-decoration:none;flex-shrink:0"
            title="${currentPriceSource === 'csfloat' ? 'View on CSFloat' : 'View on Steam Market'}">${currentPriceSource === 'csfloat' ? 'CSFloat' : '📈 Market'}</a>
@@ -897,10 +1051,15 @@ function renderDetail(r) {
 
   return `<div class="detail-inner">
     <div class="detail-section">
-      <div class="sec-title" style="display:flex;justify-content:space-between;align-items:center">
+      <div class="sec-title" style="display:flex;justify-content:space-between;align-items:center;gap:8px;flex-wrap:wrap">
         <span>Inputs (${r.contractSize} skins) — Total: <b data-live-cost>${fmtUsd(totalCost)}</b></span>
-        <button onclick="resetDetailPrices(this.closest('.detail-inner'),window._lastResult)"
-          style="font-size:.72rem;padding:2px 8px;background:var(--surf3);border:1px solid var(--border2);color:var(--dim);border-radius:4px;cursor:pointer">↺ Reset cen</button>
+        <div style="display:flex;gap:6px">
+          ${buyOrderPrices.size > 0 ? `<button onclick="applyAllBuyOrders(this.closest('.detail-inner'),window._lastResult)"
+            style="font-size:.72rem;padding:2px 8px;background:#1a3a1a;border:1px solid #4a8a4a;color:#7ecf7e;border-radius:4px;cursor:pointer"
+            title="Set all output prices to their highest buy-order price (immediate sell price)">📥 Apply all buy orders</button>` : ''}
+          <button onclick="resetDetailPrices(this.closest('.detail-inner'),window._lastResult)"
+            style="font-size:.72rem;padding:2px 8px;background:var(--surf3);border:1px solid var(--border2);color:var(--dim);border-radius:4px;cursor:pointer">↺ Reset cen</button>
+        </div>
       </div>
       ${inputRows}
       <div class="float-note">🎯 ${r.requiredFloatNote}
