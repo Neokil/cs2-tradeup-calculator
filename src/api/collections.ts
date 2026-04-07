@@ -123,13 +123,6 @@ async function fetchKnivesAndGloves(): Promise<{
     }
 
     const catId = s.category?.id;
-
-    // Track Limited Edition skins — they come from Xbox/Prime/store rewards and
-    // CANNOT be used in trade-up contracts (only regular weapon-collection skins can).
-    if (catId === 'limited') {
-      limitedSkinIds.add(s.id);
-    }
-
     const isKnife = catId === 'sfui_invpanel_filter_melee';
     const isGlove = catId === 'sfui_invpanel_filter_gloves';
     if (!isKnife && !isGlove) continue;
@@ -161,7 +154,7 @@ async function fetchKnivesAndGloves(): Promise<{
     ],
     skins,
     skinIndexMap,
-    limitedSkinIds,
+    limitedSkinIds: new Set<string>(), // unused now — kept for type compatibility
   };
 }
 
@@ -236,21 +229,26 @@ export async function fetchCollections(): Promise<{
   const collections: Collection[] = [];
   const skins: Skin[] = [];
 
-  const { limitedSkinIds } = knifeGloveData;
-  let skippedLimited = 0;
+  /**
+   * Non-tradeable collections: Xbox/Prime/store reward skins that CANNOT be used
+   * in trade-up contracts. Identified by collection ID containing 'xpshop' or
+   * collection name containing 'Limited Edition'.
+   * Currently: collection-set-xpshop-wpn-01 ("Limited Edition Item")
+   */
+  function isNonTradeableCollection(id: string, name: string): boolean {
+    return id.includes('xpshop') || name.toLowerCase().includes('limited edition');
+  }
 
   for (const apiCol of apiCollections) {
+    if (isNonTradeableCollection(apiCol.id, apiCol.name)) {
+      console.log(`Skipping non-tradeable collection: "${apiCol.name}" (${apiCol.id})`);
+      continue; // skip both the collection AND all its skins
+    }
+
     collections.push({ id: apiCol.id, name: apiCol.name, image: apiCol.image ?? undefined });
 
     for (const apiSkin of apiCol.contains) {
       if (!apiSkin.name.includes(' | ')) continue; // skip non-weapon items
-
-      // Skip Limited Edition skins — they are Xbox/Prime/store rewards and cannot
-      // be used in trade-up contracts (only regular weapon-collection skins can).
-      if (limitedSkinIds.has(apiSkin.id)) {
-        skippedLimited++;
-        continue;
-      }
 
       const rarity = RARITY_FROM_API[apiSkin.rarity.id];
       if (rarity === undefined) continue;
@@ -275,10 +273,6 @@ export async function fetchCollections(): Promise<{
         paintIndex: idx?.paintIndex,
       });
     }
-  }
-
-  if (skippedLimited > 0) {
-    console.log(`Skipped ${skippedLimited} Limited Edition skins (not usable in trade-up contracts)`);
   }
 
   // Append knife/glove pseudo-collections (browse only, no trade-up routing here)
