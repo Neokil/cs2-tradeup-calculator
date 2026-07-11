@@ -436,6 +436,7 @@ function serializeResult(r: EvaluatedTradeUp) {
     if (ex) { ex.count++; }
     else {
       inputMap.set(k, {
+        skinId: inp.skin.id,
         name: inp.skin.name,
         collection: getCollectionName(inp.skin.collectionId),
         condition: inp.condition,

@@ -650,6 +650,114 @@ function startVerification(results) {
   });
 }
 
+// ── Float input live recalc ───────────────────────────────────────
+let floatRecalcTimer = null;
+
+function onFloatInputChange(inp) {
+  // Immediately update the float bar marker + label
+  const idx = inp.dataset.fbarIdx;
+  const skinMin = parseFloat(inp.dataset.skinMin);
+  const skinMax = parseFloat(inp.dataset.skinMax);
+  const f = parseFloat(inp.value);
+  if (!isNaN(f) && idx != null) {
+    const pct = (skinMax - skinMin) > 0 ? ((f - skinMin) / (skinMax - skinMin) * 100).toFixed(1) : 50;
+    const mark = document.getElementById('fbar-mark-' + idx);
+    const val  = document.getElementById('fbar-val-'  + idx);
+    if (mark) mark.style.left = pct + '%';
+    if (val)  val.textContent = f.toFixed(4);
+  }
+  // Colour input: red if out of valid range
+  const effMin = parseFloat(inp.min), effMax = parseFloat(inp.max);
+  inp.style.borderColor = (!isNaN(f) && f >= effMin && f <= effMax) ? 'var(--accent2)' : 'var(--red)';
+
+  // Debounce backend call
+  clearTimeout(floatRecalcTimer);
+  floatRecalcTimer = setTimeout(() => {
+    const detailEl = inp.closest('.detail-inner');
+    if (detailEl) recalcOutputsFromFloats(detailEl);
+  }, 500);
+}
+
+async function recalcOutputsFromFloats(detailEl) {
+  const floatInputs = [...detailEl.querySelectorAll('[data-float-input]')];
+  const inputs = [];
+  for (const fi of floatInputs) {
+    const skinId = fi.dataset.skinId;
+    if (!skinId) continue;
+    const count    = parseInt(fi.dataset.count) || 1;
+    const effMin   = parseFloat(fi.min);
+    const effMax   = parseFloat(fi.max);
+    let   f        = parseFloat(fi.value);
+    if (isNaN(f)) f = parseFloat(fi.dataset.origFloat);
+    f = Math.max(effMin, Math.min(effMax, f)); // clamp
+    for (let i = 0; i < count; i++) inputs.push({ skinId, float: f });
+  }
+  if (!inputs.length) return;
+
+  const badge     = detailEl.querySelector('#outputs-recalc-badge');
+  const container = detailEl.querySelector('[data-outputs-container]');
+  if (badge)     badge.style.display = 'inline-flex';
+  if (container) container.style.opacity = '0.5';
+
+  try {
+    const data = await fetch(API + '/api/float/calculate', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ inputs, priceSource: currentPriceSource }),
+    }).then(r => r.json());
+
+    if (data.error || !data.results) return;
+
+    // Re-render output rows with new conditions + prices
+    const r = window._lastResult;
+    const feeRate = r?.feeRate ?? (currentPriceSource === 'csfloat' ? 0.02 : 0.13);
+
+    const newRows = data.results
+      .sort((a, b) => (b.priceUsd||0) - (a.priceUsd||0))
+      .map(out => {
+        const prob = (out.probability * 100).toFixed(1);
+        const price = out.priceUsd || 0;
+        const boEntry = buyOrderPrices.get(
+          // find matching hashName from r.outputs by name+condition
+          (r?.outputs?.find(o => o.name === out.name && o.condition === out.condition)?.hashName) || ''
+        );
+        const boUsd = boEntry ? boEntry.buyOrderCents / 100 : null;
+        const boHtml = boUsd != null
+          ? `<div style="margin-top:3px;font-size:.7rem;display:flex;align-items:center;gap:5px">
+               <span style="color:#7ecf7e;font-weight:600">📥 $${boUsd.toFixed(2)}</span>
+               <button onclick="applyBuyOrder(this,${boUsd.toFixed(2)})"
+                 style="font-size:.65rem;padding:1px 5px;background:#1a3a1a;border:1px solid #4a8a4a;color:#7ecf7e;border-radius:3px;cursor:pointer">Apply</button>
+             </div>` : '';
+        return `<div class="item-row">
+          <div class="iname">
+            <b>${out.name}</b> ${condBadge(out.condition)}
+            <div class="sub">${out.collection} <span style="font-size:.65rem;color:var(--accent2)">⟳ recalculated</span></div>
+            ${floatBar(parseFloat(out.float.toFixed(4)), out.minFloat, out.maxFloat)}
+          </div>
+          <div style="display:flex;align-items:center;gap:8px;flex-shrink:0">
+            <span class="iprob">${prob}%</span>
+            <span class="iprice" style="text-align:right">
+              <input type="number" step="0.01" min="0" value="${price.toFixed(2)}"
+                data-out-price data-out-prob="${prob}" data-orig="${price.toFixed(2)}"
+                style="width:72px;padding:2px 5px;background:var(--surf3);border:1px solid var(--border2);color:var(--text);border-radius:4px;font-size:.82rem;text-align:right"
+                oninput="this.style.borderColor=this.value!=this.dataset.orig?'var(--accent)':'var(--border2)';recalcDetail(this.closest('.detail-inner'),window._lastResult)"
+                title="Edit price to recalculate profit">
+              ${boHtml}
+            </span>
+          </div>
+        </div>`;
+      }).join('');
+
+    if (container) container.innerHTML = newRows;
+    recalcDetail(detailEl, r);
+  } catch(e) {
+    console.error('Float recalc error:', e);
+  } finally {
+    if (badge)     badge.style.display = 'none';
+    if (container) container.style.opacity = '1';
+  }
+}
+
 // ── Buy Orders ────────────────────────────────────────────────────
 async function fetchBuyOrders() {
   if (!currentResults.length) return;
@@ -949,7 +1057,17 @@ function resetDetailPrices(detailEl, r) {
     el.value = el.dataset.orig;
     el.style.borderColor = 'var(--border2)';
   });
-  recalcDetail(detailEl, r);
+  // Reset float inputs and trigger re-render of outputs
+  let floatsChanged = false;
+  detailEl.querySelectorAll('[data-float-input]').forEach(el => {
+    if (el.value !== el.dataset.origFloat) {
+      el.value = el.dataset.origFloat;
+      el.style.borderColor = 'var(--border2)';
+      onFloatInputChange(el); // updates bar + schedules recalc
+      floatsChanged = true;
+    }
+  });
+  if (!floatsChanged) recalcDetail(detailEl, r);
 }
 
 function renderDetail(r) {
@@ -959,6 +1077,9 @@ function renderDetail(r) {
 
   const inputRows = r.inputs.map((inp, i) => {
     const inpIlliquid = inp.hashName && illiquidSkins.has(inp.hashName);
+    const condR = COND_RANGES[inp.condition] || [0, 1];
+    const effMin = Math.max(condR[0], inp.minFloat).toFixed(4);
+    const effMax = Math.min(condR[1], inp.maxFloat).toFixed(4);
     const priceInput = inpIlliquid
       ? `<span style="color:var(--red);font-weight:600">🚫 No listings</span>`
       : `<input type="number" step="0.01" min="0" value="${inp.priceUsd.toFixed(2)}"
@@ -966,11 +1087,30 @@ function renderDetail(r) {
             style="width:72px;padding:2px 5px;background:var(--surf3);border:1px solid var(--border2);color:var(--text);border-radius:4px;font-size:.82rem;text-align:right"
             oninput="this.style.borderColor=this.value!=this.dataset.orig?'var(--accent)':'var(--border2)';recalcDetail(this.closest('.detail-inner'),window._lastResult)"
             title="Edit price to recalculate profit">`;
+    const floatInputEl = `<div style="margin-top:5px;display:flex;align-items:center;gap:6px;flex-wrap:wrap">
+        <input type="number" step="0.0001" min="${effMin}" max="${effMax}"
+               value="${inp.inputFloat.toFixed(4)}"
+               data-float-input data-skin-id="${inp.skinId||''}" data-count="${inp.count}"
+               data-skin-min="${inp.minFloat}" data-skin-max="${inp.maxFloat}"
+               data-orig-float="${inp.inputFloat.toFixed(4)}"
+               data-fbar-idx="${i}"
+               style="width:82px;padding:2px 5px;background:var(--surf3);border:1px solid var(--border2);color:var(--accent2);border-radius:4px;font-size:.82rem;text-align:right;font-family:monospace"
+               oninput="onFloatInputChange(this)"
+               title="Edit float → recalculates output conditions and prices">
+        <span style="font-size:.68rem;color:var(--dim2)">${effMin}–${effMax}</span>
+      </div>
+      <div class="fbar-wrap" id="fbar-wrap-${i}" style="margin-top:3px">
+        <div class="fbar">
+          <div class="fbar-fill"></div>
+          <div class="fbar-mark" id="fbar-mark-${i}" style="left:${((inp.inputFloat - inp.minFloat) / Math.max(inp.maxFloat - inp.minFloat, 0.001) * 100).toFixed(1)}%"></div>
+        </div>
+        <div class="fbar-labels"><span>${inp.minFloat}</span><span id="fbar-val-${i}" style="color:var(--accent2);font-weight:600">${inp.inputFloat.toFixed(4)}</span><span>${inp.maxFloat}</span></div>
+      </div>`;
     return `<div class="item-row" style="${inpIlliquid ? 'opacity:.6;' : ''}">
       <div class="iname">
         <b>${inp.count}× ${inp.name}</b> ${condBadge(inp.condition)}
         <div class="sub">${inp.collection}</div>
-        ${floatBar(inp.inputFloat, inp.minFloat, inp.maxFloat)}
+        ${floatInputEl}
       </div>
       <div style="display:flex;align-items:center;gap:8px;flex-shrink:0">
         <span class="iprice" style="text-align:right">${priceInput}${inpIlliquid ? '' : '<div style="font-size:.68rem;color:var(--dim)">ea</div>'}</span>
@@ -1079,8 +1219,11 @@ function renderDetail(r) {
       </div>
     </div>
     <div class="detail-section">
-      <div class="sec-title">Possible outputs</div>
-      ${outputRows}
+      <div class="sec-title" style="display:flex;justify-content:space-between;align-items:center">
+        <span>Possible outputs</span>
+        <span id="outputs-recalc-badge" style="display:none;font-size:.7rem;color:var(--accent2)"><span class="spin" style="width:10px;height:10px;border-width:1.5px"></span> recalculating…</span>
+      </div>
+      <div data-outputs-container>${outputRows}</div>
       <div style="margin-top:10px;font-size:.82rem;background:var(--surf3);border:1px solid var(--border);border-radius:6px;padding:10px 14px;display:flex;gap:20px;flex-wrap:wrap;align-items:center">
         <span style="color:var(--dim)">Po poplatku <b data-live-fee>${feeLabel}</b>%:</span>
         <span>EV: <b style="color:var(--accent)" data-live-ev>${fmtUsd(r.evUsd)}</b></span>
