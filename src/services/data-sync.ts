@@ -134,7 +134,7 @@ export async function syncAllPrices(
 
   db.transaction(() => {
     for (const skin of skins) {
-      for (const condition of validConditionsForSkin(skin)) {
+      for (const condition of validConditionsForSkin(skin.min_float, skin.max_float)) {
         for (const stattrak of [false, ...(skin.has_stattrak ? [true] : [])]) {
           const hashName = buildMarketHashName(
             skin.weapon_name, skin.pattern_name, condition, stattrak
@@ -179,7 +179,7 @@ export async function syncAllPrices(
             const key = `${s.defIndex}:${s.paintIndex}`;
             const entry = phaseMap.get(key);
             if (!entry) continue;
-            for (const condition of validConditionsForSkin(s)) {
+            for (const condition of validConditionsForSkin(s.minFloat, s.maxFloat)) {
               // Store for both non-stattrak and stattrak variants
               for (const st of [0, ...(s.hasStatTrak ? [1] : [])]) {
                 upsert.run(s.id, condition, st, source, entry.priceCents, entry.listings, now2);
@@ -211,7 +211,7 @@ const volumeCache = new Map<string, number>();
 // eligibleCache: "rarity:source" → string[]
 const eligibleCache = new Map<string, string[]>();
 // casesWithKnives cache
-let casesWithKnivesCache: Map<string, Skin[]> | null = null;
+let casesWithKnivesCache: Map<string, CaseEntry> | null = null;
 
 let cacheLoaded = false;
 
@@ -258,7 +258,7 @@ export interface CaseEntry {
  * that have both a Covert skin input pool and a knife/glove output pool.
  */
 export function getCasesWithKnives(): Map<string, CaseEntry> {
-  if (casesWithKnivesCache) return casesWithKnivesCache as Map<string, CaseEntry>;
+  if (casesWithKnivesCache) return casesWithKnivesCache;
   const db = getDb();
   ensureCache();
 
@@ -300,7 +300,7 @@ export function getCasesWithKnives(): Map<string, CaseEntry> {
     result.set(crateId, { covertSkins, outputSkins });
   }
 
-  casesWithKnivesCache = result as any;
+  casesWithKnivesCache = result;
   return result;
 }
 
@@ -371,11 +371,15 @@ function rowToSkin(row: any): Skin {
 
 /**
  * Return conditions that are valid for a given skin based on its float range.
+ *
+ * Takes the bounds directly rather than a skin object: callers hold them either
+ * as snake_case database rows or as camelCase mapped objects, and accepting one
+ * shape silently returned [] for the other.
  */
-export function validConditionsForSkin(skin: { min_float: number; max_float: number }): Condition[] {
+export function validConditionsForSkin(minFloat: number, maxFloat: number): Condition[] {
   const result: Condition[] = [];
   for (const [cond, [cMin, cMax]] of Object.entries(CONDITION_FLOAT_RANGES) as [Condition, [number, number]][]) {
-    if (cMin < skin.max_float && cMax > skin.min_float) {
+    if (cMin < maxFloat && cMax > minFloat) {
       result.push(cond);
     }
   }

@@ -426,7 +426,7 @@ let _scanPriceSource: 'steam' | 'csfloat' = 'csfloat';
 function serializeResult(r: EvaluatedTradeUp) {
   // Deduplicate inputs by skin+condition
   const inputMap = new Map<string, {
-    name: string; collection: string; condition: Condition; count: number;
+    skinId: string; name: string; collection: string; condition: Condition; count: number;
     priceUsd: number; inputFloat: number; minFloat: number; maxFloat: number;
     marketUrl: string; csfloatUrl: string; hashName: string;
   }>();
