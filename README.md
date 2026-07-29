@@ -1,5 +1,8 @@
 # CS2 Trade-Up Calculator
 
+[![CI](https://github.com/ondraulehla/cs2-tradeup-calculator/actions/workflows/ci.yml/badge.svg)](https://github.com/ondraulehla/cs2-tradeup-calculator/actions/workflows/ci.yml)
+[![license](https://img.shields.io/github/license/ondraulehla/cs2-tradeup-calculator)](LICENSE)
+
 Finds **profitable CS2 trade-up contracts** by combining live market prices with the game's float and probability mechanics — so the expected value of every viable contract is computed, not guessed.
 
 A trade-up contract converts ten skins of one rarity into a single random skin of the next rarity. Whether that gamble is +EV depends on outcome probabilities (driven by collection composition), float value propagation (input floats map to the output's wear), Steam's marketplace tax, and prices that move all day. This tool does that math across thousands of combinations.

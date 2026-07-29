@@ -2,10 +2,21 @@
   "name": "cs2-tradeup-calculator",
   "version": "1.0.0",
   "description": "CS2 Trade-Up Calculator - Find the most profitable trade-up contracts",
+  "license": "MIT",
+  "author": "Ondřej Úlehla",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/ondraulehla/cs2-tradeup-calculator.git"
+  },
+  "homepage": "https://github.com/ondraulehla/cs2-tradeup-calculator#readme",
+  "bugs": "https://github.com/ondraulehla/cs2-tradeup-calculator/issues",
   "type": "module",
   "main": "src/index.ts",
+  "engines": {
+    "node": ">=22"
+  },
   "bin": {
-    "cs2-tradeup": "src/index.ts"
+    "cs2-tradeup": "dist/index.js"
   },
   "scripts": {
     "dev": "tsx src/index.ts",
@@ -18,7 +29,7 @@
   },
   "dependencies": {
     "@types/express": "^5.0.6",
-    "better-sqlite3": "^11.0.0",
+    "better-sqlite3": "^13.0.2",
     "chalk": "^5.3.0",
     "cli-table3": "^0.6.5",
     "commander": "^13.0.0",

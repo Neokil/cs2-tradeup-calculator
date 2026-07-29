@@ -30,7 +30,7 @@ const WEAR_TAGS: Record<Condition, string> = {
   [Condition.MinimalWear]:  'tag_WearCategory1',
   [Condition.FieldTested]:  'tag_WearCategory2',
   [Condition.WellWorn]:     'tag_WearCategory3',
-  [Condition.BattleScared]: 'tag_WearCategory4',
+  [Condition.BattleScarred]: 'tag_WearCategory4',
 };
 
 export interface SteamPriceProgress {
