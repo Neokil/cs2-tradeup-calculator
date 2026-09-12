@@ -93,6 +93,8 @@ export function requiredMaxFloat(
 
 function* generateAllocations(
   collectionIds: string[], total: number, maxCollections = 2,
+  summaries = new Map<string, CollectionSummary>(),
+  bounds: AllocationBounds = {},
 ): Generator<CollectionAllocation[]> {
   const n = collectionIds.length;
   const maxSize = Math.min(Math.max(1, maxCollections), n, total);
@@ -103,7 +105,7 @@ function* generateAllocations(
 
   function* chooseCollections(start: number, selected: string[], size: number): Generator<CollectionAllocation[]> {
     if (selected.length === size) {
-      yield* distributeCounts(selected, 0, total, []);
+      yield* distributeCounts(selected, 0, total, [], 0, 0);
       return;
     }
 
@@ -115,16 +117,169 @@ function* generateAllocations(
 
   function* distributeCounts(
     selected: string[], index: number, remaining: number, counts: number[],
+    assignedMinCost: number, assignedMaxCost: number,
   ): Generator<CollectionAllocation[]> {
     if (index === selected.length - 1) {
+      const last = summaries.get(selected[index]);
+      if (!last) return;
+      const minCost = assignedMinCost + remaining * last.minInputPrice;
+      const maxCost = assignedMaxCost + remaining * last.maxInputPrice;
+      if (!budgetCanMatch(minCost, maxCost, bounds)) return;
+      if (!roiCanMatch(minCost, bounds, summaries)) return;
       yield selected.map((collectionId, i) => ({ collectionId, count: i === index ? remaining : counts[i] }));
       return;
     }
 
     const slotsLeft = selected.length - index - 1;
     for (let count = 1; count <= remaining - slotsLeft; count++) {
-      yield* distributeCounts(selected, index + 1, remaining - count, [...counts, count]);
+      const summary = summaries.get(selected[index]);
+      if (!summary) continue;
+      const nextMinCost = assignedMinCost + count * summary.minInputPrice;
+      const nextMaxCost = assignedMaxCost + count * summary.maxInputPrice;
+      const remainingAfter = remaining - count;
+      const futureMin = selected.slice(index + 1).reduce(
+        (min, collectionId) => Math.min(min, summaries.get(collectionId)?.minInputPrice ?? Infinity), Infinity
+      );
+      const futureMax = selected.slice(index + 1).reduce(
+        (max, collectionId) => Math.max(max, summaries.get(collectionId)?.maxInputPrice ?? 0), 0
+      );
+      const minPossible = nextMinCost + remainingAfter * futureMin;
+      const maxPossible = nextMaxCost + remainingAfter * futureMax;
+      if (!budgetCanMatch(minPossible, maxPossible, bounds)) continue;
+      if (!roiCanMatch(minPossible, bounds, summaries)) continue;
+      yield* distributeCounts(selected, index + 1, remainingAfter, [...counts, count], nextMinCost, nextMaxCost);
     }
+  }
+}
+
+interface CollectionSummary {
+  minInputPrice: number;
+  maxInputPrice: number;
+  maxOutputPrice: number;
+}
+
+interface AllocationBounds {
+  minBudgetCents?: number;
+  maxBudgetCents?: number;
+  feeRate?: number;
+}
+
+function budgetCanMatch(minCost: number, maxCost: number, bounds: AllocationBounds): boolean {
+  return (bounds.maxBudgetCents == null || minCost <= bounds.maxBudgetCents) &&
+    (bounds.minBudgetCents == null || maxCost >= bounds.minBudgetCents);
+}
+
+function roiCanMatch(minCost: number, bounds: AllocationBounds, summaries: Map<string, CollectionSummary>): boolean {
+  if (bounds.feeRate == null || minCost <= 0) return true;
+  let maxOutputPrice = 0;
+  for (const summary of summaries.values()) maxOutputPrice = Math.max(maxOutputPrice, summary.maxOutputPrice);
+  return maxOutputPrice * (1 - bounds.feeRate) >= minCost;
+}
+
+function buildCollectionSummaries(
+  collectionIds: string[], inputRarity: Rarity, outputRarity: Rarity,
+  statTrak: boolean, source: PriceSource,
+): Map<string, CollectionSummary> {
+  const summaries = new Map<string, CollectionSummary>();
+  for (const collectionId of collectionIds) {
+    const inputPrices = getSkinsInCollection(collectionId, inputRarity)
+      .flatMap(skin => [...getPricesForSkin(skin.id, statTrak, source)].map(([, price]) => price))
+      .filter(price => price > 0);
+    const outputPrices = getSkinsInCollection(collectionId, outputRarity)
+      .flatMap(skin => [...getPricesForSkin(skin.id, statTrak, source)].map(([, price]) => price))
+      .filter(price => price > 0);
+    if (inputPrices.length && outputPrices.length) {
+      summaries.set(collectionId, {
+        minInputPrice: Math.min(...inputPrices),
+        maxInputPrice: Math.max(...inputPrices),
+        maxOutputPrice: Math.max(...outputPrices),
+      });
+    }
+  }
+  return summaries;
+}
+
+function selectSearchCollections(
+  collectionIds: string[], summaries: Map<string, CollectionSummary>, maxCollections: number,
+): string[] {
+  if (maxCollections <= 2 || collectionIds.length <= 16) return collectionIds;
+
+  // Higher-order combinations grow explosively. Keep the strongest collection
+  // states by output potential per input cost; order is irrelevant, so this
+  // bounded pool is safe from permutation duplicates.
+  return [...collectionIds]
+    .sort((a, b) => {
+      const left = summaries.get(a);
+      const right = summaries.get(b);
+      const leftScore = left ? left.maxOutputPrice / Math.max(left.minInputPrice, 1) : 0;
+      const rightScore = right ? right.maxOutputPrice / Math.max(right.minInputPrice, 1) : 0;
+      return rightScore - leftScore;
+    })
+    .slice(0, 16);
+}
+
+function generateBeamAllocations(
+  collectionIds: string[], total: number, maxCollections: number,
+  summaries: Map<string, CollectionSummary>, bounds: AllocationBounds,
+): CollectionAllocation[][] {
+  const beamWidth = 1500;
+  const globalMinInput = Math.min(...collectionIds.map(id => summaries.get(id)?.minInputPrice ?? Infinity));
+  const globalMaxInput = Math.max(...collectionIds.map(id => summaries.get(id)?.maxInputPrice ?? 0));
+  const globalMaxOutput = Math.max(...collectionIds.map(id => summaries.get(id)?.maxOutputPrice ?? 0));
+
+  type BeamState = { allocations: CollectionAllocation[]; assigned: number; score: number };
+  let beam: BeamState[] = [{ allocations: [], assigned: 0, score: 0 }];
+
+  for (let assigned = 0; assigned < total; assigned++) {
+    const next = new Map<string, BeamState>();
+
+    for (const state of beam) {
+      // Add one input to a collection already present in this state.
+      for (let i = 0; i < state.allocations.length; i++) {
+        const allocations = state.allocations.map((item, index) =>
+          index === i ? { ...item, count: item.count + 1 } : item
+        );
+        addBeamState(allocations, next);
+      }
+
+      // Add a new collection only after the last selected collection. This
+      // canonical ordering prevents permutations of the same allocation.
+      if (state.allocations.length < maxCollections) {
+        const lastId = state.allocations[state.allocations.length - 1]?.collectionId;
+        const start = lastId == null ? 0 : collectionIds.indexOf(lastId) + 1;
+        for (let i = start; i < collectionIds.length; i++) {
+          addBeamState([...state.allocations, { collectionId: collectionIds[i], count: 1 }], next);
+        }
+      }
+    }
+
+    beam = [...next.values()]
+      .sort((a, b) => b.score - a.score)
+      .slice(0, beamWidth);
+  }
+
+  return beam.map(state => state.allocations);
+
+  function addBeamState(allocations: CollectionAllocation[], next: Map<string, BeamState>): void {
+    const assigned = allocations.reduce((sum, item) => sum + item.count, 0);
+    const remaining = total - assigned;
+    const minCost = allocations.reduce(
+      (sum, item) => sum + item.count * (summaries.get(item.collectionId)?.minInputPrice ?? Infinity), 0
+    );
+    const maxCost = allocations.reduce(
+      (sum, item) => sum + item.count * (summaries.get(item.collectionId)?.maxInputPrice ?? 0), 0
+    );
+    if (!budgetCanMatch(minCost + remaining * globalMinInput, maxCost + remaining * globalMaxInput, bounds)) return;
+    if (bounds.feeRate != null && (minCost + remaining * globalMinInput) > 0 &&
+        globalMaxOutput * (1 - bounds.feeRate) < minCost + remaining * globalMinInput) return;
+
+    const estimatedOutput = allocations.reduce(
+      (sum, item) => sum + item.count * (summaries.get(item.collectionId)?.maxOutputPrice ?? 0), 0
+    ) / total;
+    const score = estimatedOutput / Math.max(minCost + remaining * globalMinInput, 1);
+    const key = allocations.map(item => `${item.collectionId}:${item.count}`).join('|');
+    const existing = next.get(key);
+    if (!existing || score > existing.score) next.set(key, { allocations, assigned, score });
   }
 }
 
@@ -180,12 +335,26 @@ export interface EvaluatedTradeUp extends TradeUpResult {
 }
 
 const ALL_CONDITIONS = Object.values(Condition);
+const conditionComboCache = new Map<number, Condition[][]>();
 
 function* conditionCombos(n: number): Generator<Condition[]> {
-  if (n === 1) { for (const c of ALL_CONDITIONS) yield [c]; return; }
-  for (const c of ALL_CONDITIONS)
-    for (const rest of conditionCombos(n - 1))
-      yield [c, ...rest];
+  const cached = conditionComboCache.get(n);
+  if (cached) {
+    yield* cached;
+    return;
+  }
+  const combinations: Condition[][] = [];
+  if (n === 1) {
+    for (const c of ALL_CONDITIONS) combinations.push([c]);
+    conditionComboCache.set(n, combinations);
+    yield* combinations;
+    return;
+  }
+  for (const c of ALL_CONDITIONS) {
+    for (const rest of conditionCombos(n - 1)) combinations.push([c, ...rest]);
+  }
+  conditionComboCache.set(n, combinations);
+  yield* combinations;
 }
 
 function availableConditions(
@@ -309,6 +478,7 @@ export interface FinderOptions {
   floatMode?: FloatMode;
   priceSource?: PriceSource;
   maxCollections?: 1 | 2 | 3 | 4 | 5;
+  searchStrategy?: 'auto' | 'exact' | 'beam';
   minBudgetCents?: number;
   maxBudgetCents?: number;
 }
@@ -324,6 +494,7 @@ export function findProfitableTradeUps(options: FinderOptions = {}): EvaluatedTr
     floatMode = 'mid',
     priceSource = 'csfloat',
     maxCollections,
+    searchStrategy = 'auto',
     minBudgetCents,
     maxBudgetCents,
   } = options;
@@ -331,6 +502,10 @@ export function findProfitableTradeUps(options: FinderOptions = {}): EvaluatedTr
   const results: EvaluatedTradeUp[] = [];
   let evaluated = 0;
   let pruned = 0;
+
+  if (searchStrategy === 'exact' && maxCollections != null && maxCollections > 2) {
+    throw new Error('Exact search is only available for up to 2 collections. Select Beam or reduce Max collections.');
+  }
 
   for (const inputRarity of rarities) {
     const outputRarity = (inputRarity + 1) as Rarity;
@@ -355,33 +530,57 @@ export function findProfitableTradeUps(options: FinderOptions = {}): EvaluatedTr
     // upperBound/lowerBound pruning eliminates most unpromising pairs quickly,
     // so even C(89,2)=3916 pairs typically prune down to a few hundred evaluations.
     const maxColls = maxCollections ?? (withPrices.length > 150 ? 1 : 2);
-    console.log(`${Rarity[inputRarity]} → ${Rarity[outputRarity]}: ${withPrices.length} eligible collections (maxColls=${maxColls})`);
+    const effectiveStrategy = searchStrategy === 'auto'
+      ? (maxColls > 2 ? 'beam' : 'exact')
+      : searchStrategy;
+    const summaries = buildCollectionSummaries(withPrices, inputRarity, outputRarity, statTrak, priceSource);
+    const searchCollections = effectiveStrategy === 'beam'
+      ? selectSearchCollections(withPrices, summaries, maxColls)
+      : withPrices;
+    const availableConditionsCache = new Map<string, Set<Condition>>();
+    const candidateSkinsCache = new Map<string, Skin[]>();
+    const feeRate = priceSource === 'csfloat' ? config.csfloatFeeRate : config.steamTaxRate;
+    console.log(`${Rarity[inputRarity]} → ${Rarity[outputRarity]}: ${withPrices.length} eligible collections, searching ${searchCollections.length} (maxColls=${maxColls}, strategy=${effectiveStrategy})`);
 
-    for (const allocations of generateAllocations(withPrices, 10, maxColls)) {
-      const maxPossibleEv = upperBound(allocations, outputRarity, statTrak, priceSource);
-      const minCost = lowerBound(allocations, inputRarity, statTrak, priceSource);
-      const inputBounds = inputCostBounds(allocations, inputRarity, statTrak, priceSource);
-      const _feeRate = priceSource === 'csfloat' ? config.csfloatFeeRate : config.steamTaxRate;
+    const allocationsToEvaluate = effectiveStrategy === 'beam'
+      ? generateBeamAllocations(searchCollections, 10, maxColls, summaries, {
+        minBudgetCents, maxBudgetCents, feeRate,
+      })
+      : generateAllocations(searchCollections, 10, maxColls, summaries, {
+        minBudgetCents, maxBudgetCents, feeRate,
+      });
+
+    for (const allocations of allocationsToEvaluate) {
+      const maxPossibleEv = upperBound(allocations, summaries);
+      const minCost = lowerBound(allocations, summaries);
       if (
         minCost === null ||
-        !inputBounds ||
-        (maxBudgetCents != null && inputBounds.minCents > maxBudgetCents) ||
-        (minBudgetCents != null && inputBounds.maxCents < minBudgetCents) ||
-        maxPossibleEv * (1 - _feeRate) < minCost
+        maxPossibleEv * (1 - feeRate) < minCost
       ) {
         pruned++;
         continue;
       }
 
-      const avail = allocations.map(a => availableConditions(a.collectionId, inputRarity, statTrak, priceSource));
+      const avail = allocations.map(a => {
+        const cached = availableConditionsCache.get(a.collectionId);
+        if (cached) return cached;
+        const conditions = availableConditions(a.collectionId, inputRarity, statTrak, priceSource);
+        availableConditionsCache.set(a.collectionId, conditions);
+        return conditions;
+      });
       const isSingleCollection = allocations.length === 1;
 
       for (const conditions of conditionCombos(allocations.length)) {
         if (!conditions.every((c, i) => avail[i].has(c))) continue;
 
-        const skinGroups = allocations.map((a, i) =>
-          candidateSkins(a.collectionId, inputRarity, conditions[i], statTrak, isSingleCollection, floatMode, priceSource)
-        );
+        const skinGroups = allocations.map((a, i) => {
+          const key = `${a.collectionId}:${conditions[i]}:${isSingleCollection ? 'all' : 'short'}`;
+          const cached = candidateSkinsCache.get(key);
+          if (cached) return cached;
+          const skins = candidateSkins(a.collectionId, inputRarity, conditions[i], statTrak, isSingleCollection, floatMode, priceSource);
+          candidateSkinsCache.set(key, skins);
+          return skins;
+        });
         if (skinGroups.some(g => g.length === 0)) continue;
 
         for (const skinSel of cartesianSkins(skinGroups)) {
@@ -533,56 +732,24 @@ function findProfitableCaseTradeUps(options: FinderOptions): EvaluatedTradeUp[] 
   return results.sort((a, b) => b.roi - a.roi).slice(0, maxResults);
 }
 
-function upperBound(
-  allocations: CollectionAllocation[], outputRarity: Rarity,
-  statTrak: boolean, source: PriceSource,
-): number {
+function upperBound(allocations: CollectionAllocation[], summaries: Map<string, CollectionSummary>): number {
   let maxEv = 0;
   const total = allocations.reduce((s, a) => s + a.count, 0);
   for (const alloc of allocations) {
-    const outputs = getSkinsInCollection(alloc.collectionId, outputRarity);
     const collProb = alloc.count / total;
-    let maxPrice = 0;
-    for (const skin of outputs)
-      for (const [, price] of getPricesForSkin(skin.id, statTrak, source))
-        maxPrice = Math.max(maxPrice, price);
-    maxEv += maxPrice * collProb;
+    maxEv += (summaries.get(alloc.collectionId)?.maxOutputPrice ?? 0) * collProb;
   }
   return maxEv;
 }
 
 function lowerBound(
-  allocations: CollectionAllocation[], inputRarity: Rarity,
-  statTrak: boolean, source: PriceSource,
+  allocations: CollectionAllocation[], summaries: Map<string, CollectionSummary>,
 ): number | null {
   let totalMin = 0;
   for (const alloc of allocations) {
-    const skins = getSkinsInCollection(alloc.collectionId, inputRarity);
-    let minPrice = Infinity;
-    for (const skin of skins)
-      for (const [, price] of getPricesForSkin(skin.id, statTrak, source))
-        minPrice = Math.min(minPrice, price);
-    if (minPrice === Infinity) return null;
+    const minPrice = summaries.get(alloc.collectionId)?.minInputPrice;
+    if (minPrice == null) return null;
     totalMin += minPrice * alloc.count;
   }
   return totalMin;
-}
-
-function inputCostBounds(
-  allocations: CollectionAllocation[], inputRarity: Rarity,
-  statTrak: boolean, source: PriceSource,
-): { minCents: number; maxCents: number } | null {
-  let minCents = 0;
-  let maxCents = 0;
-
-  for (const allocation of allocations) {
-    const prices = getSkinsInCollection(allocation.collectionId, inputRarity)
-      .flatMap(skin => [...getPricesForSkin(skin.id, statTrak, source)].map(([, price]) => price))
-      .filter(price => price > 0);
-    if (!prices.length) return null;
-    minCents += Math.min(...prices) * allocation.count;
-    maxCents += Math.max(...prices) * allocation.count;
-  }
-
-  return { minCents, maxCents };
 }

@@ -102,6 +102,11 @@ export function createServer(port = parseInt(process.env.PORT || '3000', 10)) {
         .find(m => m === req.query.floatMode) ?? 'mid';
       const maxCollections = (['1', '2', '3', '4', '5'] as const)
         .find(value => value === req.query.maxCollections);
+      const searchStrategy = (['auto', 'exact', 'beam'] as const)
+        .find(value => value === req.query.searchStrategy) ?? 'auto';
+      if (searchStrategy === 'exact' && maxCollections && Number(maxCollections) > 2) {
+        return res.status(400).json({ error: 'Exact search is only available for up to 2 collections.' });
+      }
       const minBudget = parseBudgetCents(req.query.minBudget as string | undefined);
       const maxBudget = parseBudgetCents(req.query.maxBudget as string | undefined);
       const priceSource = (['steam', 'csfloat'] as const)
@@ -110,6 +115,7 @@ export function createServer(port = parseInt(process.env.PORT || '3000', 10)) {
       const results = findProfitableTradeUps({
         minRoi, maxResults, statTrak, floatMode, priceSource,
         maxCollections: maxCollections ? Number(maxCollections) as 1 | 2 | 3 | 4 | 5 : undefined,
+        searchStrategy,
         minBudgetCents: minBudget,
         maxBudgetCents: maxBudget,
       });

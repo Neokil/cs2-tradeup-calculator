@@ -214,13 +214,20 @@ nav{background:var(--surf);border-bottom:1px solid var(--border);display:flex;al
       </span>
     </div>
     <div class="field"><label title="Maximum number of collections allowed in one trade-up. Auto uses two when the scan size is manageable.">Max collections</label>
-      <select id="maxCollections">
+      <select id="maxCollections" onchange="updateSearchStrategyOptions()">
         <option value="auto" selected>Auto</option>
         <option value="1">1 collection</option>
         <option value="2">Up to 2</option>
         <option value="3">Up to 3</option>
         <option value="4">Up to 4</option>
         <option value="5">Up to 5</option>
+      </select>
+    </div>
+    <div class="field"><label title="Exact checks every combination; Beam keeps only the most promising higher-order states.">Search strategy</label>
+      <select id="searchStrategy">
+        <option value="auto" selected>Auto</option>
+        <option value="exact">Exact (1–2 only)</option>
+        <option value="beam">Beam</option>
       </select>
     </div>
     <div class="field"><label>StatTrak™</label>
@@ -873,6 +880,17 @@ async function fetchBuyOrders() {
 // ── Scan ──────────────────────────────────────────────────────────
 let expandedRow = null;
 
+function updateSearchStrategyOptions() {
+  const maxCollections = document.getElementById('maxCollections')?.value;
+  const strategy = document.getElementById('searchStrategy');
+  const exact = strategy?.querySelector('option[value="exact"]');
+  if (!strategy || !exact) return;
+
+  const exactAllowed = maxCollections === 'auto' || Number(maxCollections) <= 2;
+  exact.disabled = !exactAllowed;
+  if (!exactAllowed && strategy.value === 'exact') strategy.value = 'auto';
+}
+
 async function runScan() {
   const btn = document.getElementById('scanBtn');
   btn.disabled = true; btn.innerHTML = '<span class="spin"></span> Scanning…';
@@ -886,11 +904,12 @@ async function runScan() {
     const statTrak = document.getElementById('statTrak').value;
     const floatMode = document.getElementById('floatMode').value;
     const maxCollections = document.getElementById('maxCollections').value;
+    const searchStrategy = document.getElementById('searchStrategy').value;
     const minBudget = document.getElementById('minBudget').value;
     const maxBudget = document.getElementById('maxBudget').value;
     const scanPriceSource = document.getElementById('scanPriceSource').value;
     const budgetParams = new URLSearchParams({ minBudget, maxBudget });
-    const url = `${API}/api/scan?minRoi=${minRoi}&maxResults=${maxRes}&statTrak=${statTrak}&floatMode=${floatMode}&maxCollections=${maxCollections}&${budgetParams}&priceSource=${scanPriceSource}`;
+    const url = `${API}/api/scan?minRoi=${minRoi}&maxResults=${maxRes}&statTrak=${statTrak}&floatMode=${floatMode}&maxCollections=${maxCollections}&searchStrategy=${searchStrategy}&${budgetParams}&priceSource=${scanPriceSource}`;
     const t0 = Date.now();
     const data = await fetch(url).then(r => r.json());
     if (data.error) throw new Error(data.error);
