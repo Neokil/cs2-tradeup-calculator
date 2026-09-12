@@ -451,6 +451,9 @@ const illiquidSkins = new Set();
 // Buy order prices: hashName → { buyOrderCents, buyOrderCount }
 const buyOrderPrices = new Map();
 let buyOrderCtrl = null;
+// hashName -> targeted CS.Money/DMarket quote and links
+const marketQuotes = new Map();
+let marketQuoteCtrl = null;
 
 function recomputeResult(r, overrides) {
   // overrides: Map<hashName, medianPriceCents>
@@ -879,6 +882,7 @@ async function runScan() {
     document.getElementById('stu').textContent = data.count;
     document.getElementById('scanMeta').textContent = `${data.count} results in ${elapsed}s`;
     renderResults(data.results);
+    loadMarketQuotes(data.results);
     // Show buy-order button when CSFloat key is present and we have results
     const boBtn = document.getElementById('buyOrderBtn');
     if (boBtn) {
@@ -894,6 +898,58 @@ async function runScan() {
   } finally {
     btn.disabled = false; btn.innerHTML = '🔍 Scan for profits';
   }
+}
+
+async function loadMarketQuotes(results) {
+  const items = [];
+  const seen = new Set();
+  for (const r of results) {
+    for (const inp of r.inputs) {
+      if (seen.has(inp.hashName)) continue;
+      seen.add(inp.hashName);
+      items.push({ hashName: inp.hashName, condition: inp.condition, statTrak: inp.statTrak, count: inp.count });
+    }
+  }
+  if (!items.length) return;
+  if (marketQuoteCtrl) marketQuoteCtrl.abort();
+  marketQuoteCtrl = new AbortController();
+
+  try {
+    const response = await fetch(API + '/api/market-quotes/batch', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ items }),
+      signal: marketQuoteCtrl.signal,
+    });
+    const data = await response.json();
+    for (const quote of data.quotes ?? []) marketQuotes.set(quote.hashName, quote);
+
+    if (expandedRow !== null) {
+      const detail = document.getElementById('detail-' + expandedRow);
+      const result = currentResults[expandedRow];
+      if (detail && result && detail.style.display !== 'none') {
+        detail.querySelector('td').innerHTML = renderDetail(result);
+      }
+    }
+  } catch (e) {
+    if (e.name !== 'AbortError') console.warn('Marketplace quote lookup failed', e);
+  }
+}
+
+function marketQuoteButton(label, url, priceCents, color) {
+  const price = priceCents != null ? ` ${fmtUsd(priceCents / 100)}` : ' —';
+  return `<a href="${url}" target="_blank" rel="noopener"
+    style="font-size:.68rem;padding:2px 6px;background:#1a2535;border:1px solid ${color};color:${color};border-radius:4px;text-decoration:none;flex-shrink:0"
+    title="Open ${label} market listing">${label}${price}</a>`;
+}
+
+function dmarketQuoteButton(url, lowestCents, averageCents) {
+  const label = lowestCents != null && averageCents != null
+    ? `DMarket ${fmtUsd(lowestCents / 100)} / ${fmtUsd(averageCents / 100)} avg`
+    : 'DMarket —';
+  return `<a href="${url}" target="_blank" rel="noopener"
+    style="font-size:.68rem;padding:2px 6px;background:#1a2535;border:1px solid #e07b39;color:#e07b39;border-radius:4px;text-decoration:none;flex-shrink:0"
+    title="DMarket: lowest price / average price for the required quantity">${label}</a>`;
 }
 
 function renderResults(results) {
@@ -1117,6 +1173,8 @@ function renderDetail(r) {
         <a href="${currentPriceSource === 'csfloat' ? (inp.csfloatUrl||'#') : inp.marketUrl}" target="_blank" rel="noopener"
            style="font-size:.72rem;padding:2px 7px;background:#1a2535;border:1px solid var(--accent2);color:var(--accent2);border-radius:4px;text-decoration:none;flex-shrink:0"
            title="${currentPriceSource === 'csfloat' ? 'Buy on CSFloat' : 'Buy on Steam Market'}">${currentPriceSource === 'csfloat' ? 'CF Buy' : '🛒 Buy'}</a>
+        ${(() => { const quote = marketQuotes.get(inp.hashName); return marketQuoteButton('CS.Money', quote?.csMoneyUrl || inp.csMoneyUrl, quote?.csMoneyPriceCents, '#d7a84d'); })()}
+        ${(() => { const quote = marketQuotes.get(inp.hashName); return dmarketQuoteButton(quote?.dmarketUrl || inp.dmarketUrl, quote?.dmarketLowestPriceCents, quote?.dmarketAveragePriceCents); })()}
       </div>
     </div>`;
   }).join('');
