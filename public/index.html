@@ -859,20 +859,24 @@ async function loadMarketQuotes(results) {
   marketQuoteCtrl = new AbortController();
 
   try {
-    const response = await fetch(API + '/api/market-quotes/batch', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ items }),
-      signal: marketQuoteCtrl.signal,
-    });
-    const data = await response.json();
-    for (const quote of data.quotes ?? []) marketQuotes.set(quote.hashName, quote);
+    // Keep requests small enough for common production reverse-proxy limits.
+    for (let offset = 0; offset < items.length; offset += 25) {
+      const response = await fetch(API + '/api/market-quotes/batch', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ items: items.slice(offset, offset + 25) }),
+        signal: marketQuoteCtrl.signal,
+      });
+      if (!response.ok) throw new Error(`Marketplace quote request failed: HTTP ${response.status}`);
+      const data = await response.json();
+      for (const quote of data.quotes ?? []) marketQuotes.set(quote.hashName, quote);
 
-    if (expandedRow !== null) {
-      const detail = document.getElementById('detail-' + expandedRow);
-      const result = currentResults[expandedRow];
-      if (detail && result && detail.style.display !== 'none') {
-        detail.querySelector('td').innerHTML = renderDetail(result);
+      if (expandedRow !== null) {
+        const detail = document.getElementById('detail-' + expandedRow);
+        const result = currentResults[expandedRow];
+        if (detail && result && detail.style.display !== 'none') {
+          detail.querySelector('td').innerHTML = renderDetail(result);
+        }
       }
     }
   } catch (e) {
