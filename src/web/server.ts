@@ -209,6 +209,9 @@ export function createServer(port = parseInt(process.env.PORT || '3000', 10)) {
           condition: item.condition,
           statTrak: item.statTrak === true,
           count: Math.max(1, Math.min(Number(item.count) || 1, 100)),
+          defIndex: item.defIndex,
+          paintIndex: item.paintIndex,
+          estimatedFloat: item.estimatedFloat,
         }));
       const quotes = await fetchMarketQuotes(targets);
       res.json({ quotes });
@@ -536,6 +539,7 @@ function serializeResult(r: EvaluatedTradeUp) {
           condition: o.condition,
           probability: parseFloat((o.probability * 100).toFixed(2)),
           priceUsd: o.priceCents / 100,
+          statTrak,
           float: parseFloat(o.estimatedFloat.toFixed(4)),
           minFloat: o.skin.minFloat,
           maxFloat: o.skin.maxFloat,
@@ -546,6 +550,14 @@ function serializeResult(r: EvaluatedTradeUp) {
           paintIndex: o.skin.paintIndex != null ? Number(o.skin.paintIndex) : null,
           marketUrl: steamMarketUrl(o.skin.weaponName, o.skin.patternName, o.condition, statTrak),
           csfloatUrl: csfloatUrl(o.skin, o.condition, statTrak),
+          dmarketUrl: dmarketSearchUrl(
+            buildMarketHashName(o.skin.weaponName, o.skin.patternName, o.condition, statTrak),
+            o.condition,
+          ),
+          csMoneyUrl: csMoneySearchUrl(
+            buildMarketHashName(o.skin.weaponName, o.skin.patternName, o.condition, statTrak),
+            o.condition,
+          ),
           hashName: buildMarketHashName(o.skin.weaponName, o.skin.patternName, o.condition, statTrak),
         };
       }),

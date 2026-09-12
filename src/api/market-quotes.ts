@@ -1,5 +1,6 @@
 import { Condition } from '../models/enums.js';
 import { fetchCSMoneyPricesFromPriceEmpire } from './pricempire-prices.js';
+import { config } from '../config.js';
 
 const DMARKET_ITEMS_URL = 'https://api.dmarket.com/exchange/v1/market/items/v2';
 const DMARKET_PAGE_SIZE = 10;
@@ -17,6 +18,9 @@ export interface MarketQuoteTarget {
   condition: Condition;
   statTrak: boolean;
   count: number;
+  defIndex?: number | null;
+  paintIndex?: number | null;
+  estimatedFloat?: number;
 }
 
 export interface MarketQuote {
@@ -27,6 +31,8 @@ export interface MarketQuote {
   csMoneyPriceCents: number | null;
   csMoneyAveragePriceCents: number | null;
   csMoneyUrl: string;
+  csfloatBuyOrderCents: number | null;
+  csfloatBuyOrderCount: number;
 }
 
 interface DMarketOffer {
@@ -58,6 +64,7 @@ export async function fetchMarketQuotes(
     const csMoneyUrl = csMoneySearchUrl(target.hashName, target.condition);
     const dmarketPrices = await fetchDMarketPrices(target);
     const csMoneyPrices = priceEmpirePrices.get(target.hashName) ?? null;
+    const csfloatBuyOrder = await fetchCSFloatBuyOrder(target);
     quotes.push({
       hashName: target.hashName,
       dmarketLowestPriceCents: dmarketPrices?.lowestPriceCents ?? null,
@@ -66,10 +73,73 @@ export async function fetchMarketQuotes(
       csMoneyPriceCents: csMoneyPrices?.lowestPriceCents ?? null,
       csMoneyAveragePriceCents: csMoneyPrices?.averagePriceCents ?? null,
       csMoneyUrl,
+      csfloatBuyOrderCents: csfloatBuyOrder?.priceCents ?? null,
+      csfloatBuyOrderCount: csfloatBuyOrder?.count ?? 0,
     });
   }
 
   return quotes;
+}
+
+async function fetchCSFloatBuyOrder(target: MarketQuoteTarget): Promise<{
+  priceCents: number;
+  count: number;
+} | null> {
+  if (target.defIndex == null || target.paintIndex == null) return null;
+  if (!config.csfloatApiKey) {
+    console.warn(`CSFloat buy order skipped for ${target.hashName}: CSFLOAT_API_KEY is not configured`);
+    return null;
+  }
+
+  const url = new URL('https://csfloat.com/api/v1/listings');
+  url.searchParams.set('def_index', String(target.defIndex));
+  url.searchParams.set('paint_index', String(target.paintIndex));
+  url.searchParams.set('market_hash_name', target.hashName);
+  url.searchParams.set('type', 'buy_now');
+  url.searchParams.set('sort_by', 'lowest_price');
+  url.searchParams.set('limit', '1');
+  url.searchParams.set('category', target.statTrak ? '2' : '1');
+
+  try {
+    const headers: Record<string, string> = {
+      'User-Agent': 'Mozilla/5.0 (compatible; CS2TradeUpCalc/1.0)',
+    };
+    if (config.csfloatApiKey) headers.Authorization = config.csfloatApiKey;
+
+    const response = await fetch(url, { headers });
+    if (!response.ok) {
+      console.warn(`CSFloat listing lookup failed for ${target.hashName}: HTTP ${response.status} ${response.statusText}`);
+      return null;
+    }
+
+    const data = await response.json() as {
+      data?: Array<{ id: string }>;
+    };
+    const listingId = data.data?.[0]?.id;
+    if (!listingId) return null;
+
+    const buyOrdersResponse = await fetch(
+      `https://csfloat.com/api/v1/listings/${listingId}/buy-orders?limit=10`,
+      { headers },
+    );
+    if (!buyOrdersResponse.ok) {
+      console.warn(`CSFloat buy-order request failed for ${target.hashName}: HTTP ${buyOrdersResponse.status} ${buyOrdersResponse.statusText}`);
+      return null;
+    }
+
+    const buyOrders = await buyOrdersResponse.json() as Array<{
+      price?: number;
+      qty?: number;
+    }>;
+    const validOrders = buyOrders.filter(order => (order.price ?? 0) > 0);
+    const bestOrder = validOrders[0];
+    return bestOrder?.price
+      ? { priceCents: bestOrder.price, count: validOrders.length }
+      : null;
+  } catch {
+    console.warn(`CSFloat buy order request failed for ${target.hashName}: network error`);
+    return null;
+  }
 }
 
 async function fetchDMarketPrices(target: MarketQuoteTarget): Promise<{

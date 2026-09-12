@@ -249,10 +249,6 @@ nav{background:var(--surf);border-bottom:1px solid var(--border);display:flex;al
       </select>
     </div>
     <button class="btn btn-primary" id="scanBtn" onclick="runScan()">🔍 Scan for profits</button>
-    <button class="btn btn-secondary" id="buyOrderBtn" onclick="fetchBuyOrders()"
-            style="display:none" title="Fetch highest CSFloat buy-order prices for all output skins (requires CSFLOAT_API_KEY)">
-      📊 Fetch buy orders
-    </button>
     <span id="scanMeta" style="font-size:.8rem;color:var(--dim);align-self:center"></span>
   </div>
   <!-- Live price verification progress -->
@@ -467,13 +463,10 @@ const TAX = 0.13;
 let verifyCtrl = null;
 let currentResults = [];
 let currentPriceSource = 'csfloat'; // updated on each scan
-let hasCsfloatKey = false;
 // hashName → { medianCents, volume } once verified
 const verifiedPrices = new Map();
 // hashName → true if illiquid (no listings)
 const illiquidSkins = new Set();
-// Buy order prices: hashName → { buyOrderCents, buyOrderCount }
-const buyOrderPrices = new Map();
 let buyOrderCtrl = null;
 // hashName -> targeted CS.Money/DMarket quote and links
 const marketQuotes = new Map();
@@ -744,17 +737,12 @@ async function recalcOutputsFromFloats(detailEl) {
       .map(out => {
         const prob = (out.probability * 100).toFixed(1);
         const price = out.priceUsd || 0;
-        const boEntry = buyOrderPrices.get(
-          // find matching hashName from r.outputs by name+condition
-          (r?.outputs?.find(o => o.name === out.name && o.condition === out.condition)?.hashName) || ''
-        );
-        const boUsd = boEntry ? boEntry.buyOrderCents / 100 : null;
-        const boHtml = boUsd != null
-          ? `<div style="margin-top:3px;font-size:.7rem;display:flex;align-items:center;gap:5px">
-               <span style="color:#7ecf7e;font-weight:600">📥 $${boUsd.toFixed(2)}</span>
-               <button onclick="applyBuyOrder(this,${boUsd.toFixed(2)})"
-                 style="font-size:.65rem;padding:1px 5px;background:#1a3a1a;border:1px solid #4a8a4a;color:#7ecf7e;border-radius:3px;cursor:pointer">Apply</button>
-             </div>` : '';
+        const existingOut = r?.outputs?.find(o => o.name === out.name && o.condition === out.condition);
+        const outputHashName = existingOut?.hashName || '';
+        const outputCsfloatUrl = existingOut?.csfloatUrl || '#';
+        const outputCsMoneyUrl = existingOut?.csMoneyUrl || '#';
+        const outputDmarketUrl = existingOut?.dmarketUrl || '#';
+        const outputQuote = marketQuotes.get(outputHashName);
         return `<div class="item-row">
           <div class="iname">
             <b>${out.name}</b> ${condBadge(out.condition)}
@@ -769,8 +757,12 @@ async function recalcOutputsFromFloats(detailEl) {
                 style="width:72px;padding:2px 5px;background:var(--surf3);border:1px solid var(--border2);color:var(--text);border-radius:4px;font-size:.82rem;text-align:right"
                 oninput="this.style.borderColor=this.value!=this.dataset.orig?'var(--accent)':'var(--border2)';recalcDetail(this.closest('.detail-inner'),window._lastResult)"
                 title="Edit price to recalculate profit">
-              ${boHtml}
             </span>
+            <div style="display:flex;flex-direction:column;align-items:stretch;gap:3px;flex-shrink:0">
+              ${marketQuoteButton('CSFloat', outputCsfloatUrl, price * 100, price * 100, 1, 'var(--accent2)', false, outputQuote?.csfloatBuyOrderCents != null ? ` / buy order ${fmtUsd(outputQuote.csfloatBuyOrderCents / 100)}` : '')}
+              ${marketQuoteButton('CS.Money', outputQuote?.csMoneyUrl || outputCsMoneyUrl, outputQuote?.csMoneyPriceCents, outputQuote?.csMoneyAveragePriceCents, 1, '#d7a84d', false)}
+              ${dmarketQuoteButton(outputQuote?.dmarketUrl || outputDmarketUrl, outputQuote?.dmarketLowestPriceCents, outputQuote?.dmarketAveragePriceCents, 1, false)}
+            </div>
           </div>
         </div>`;
       }).join('');
@@ -782,98 +774,6 @@ async function recalcOutputsFromFloats(detailEl) {
   } finally {
     if (badge)     badge.style.display = 'none';
     if (container) container.style.opacity = '1';
-  }
-}
-
-// ── Buy Orders ────────────────────────────────────────────────────
-async function fetchBuyOrders() {
-  if (!currentResults.length) return;
-  const btn = document.getElementById('buyOrderBtn');
-
-  // Collect all unique output skins that have defIndex + paintIndex
-  const statTrak = document.getElementById('statTrak').value === 'true';
-  const items = [];
-  const seen = new Set();
-  for (const r of currentResults) {
-    for (const o of r.outputs) {
-      if (o.defIndex == null || o.paintIndex == null) continue;
-      const key = `${o.defIndex}:${o.paintIndex}:${statTrak ? 1 : 0}`;
-      if (seen.has(key)) continue;
-      seen.add(key);
-      items.push({
-        defIndex: o.defIndex,
-        paintIndex: o.paintIndex,
-        condition: o.condition,
-        hashName: o.hashName,
-        estimatedFloat: o.float,
-        statTrak,
-      });
-    }
-  }
-
-  if (!items.length) {
-    alert('No output skins have def_index/paint_index data. Try re-syncing skins first.');
-    return;
-  }
-
-  if (buyOrderCtrl) buyOrderCtrl.abort();
-  buyOrderCtrl = new AbortController();
-  btn.disabled = true;
-  btn.innerHTML = '<span class="spin"></span> Fetching…';
-
-  try {
-    const res = await fetch(API + '/api/buy-orders/batch', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ items }),
-      signal: buyOrderCtrl.signal,
-    });
-
-    const reader = res.body.getReader();
-    const dec = new TextDecoder();
-    let buf = '', total = items.length, done = 0;
-
-    while (true) {
-      const { done: rdone, value } = await reader.read();
-      if (rdone) break;
-      buf += dec.decode(value, { stream: true });
-      const lines = buf.split('\n'); buf = lines.pop();
-      for (const line of lines) {
-        if (!line.startsWith('data:')) continue;
-        try {
-          const ev = JSON.parse(line.slice(5));
-          if (ev.type === 'start') { total = ev.total; }
-          if (ev.type === 'price') {
-            done++;
-            btn.innerHTML = `<span class="spin"></span> ${done}/${total}`;
-            if (ev.buyOrderCents != null) {
-              buyOrderPrices.set(ev.hashName, {
-                buyOrderCents: ev.buyOrderCents,
-                buyOrderCount: ev.buyOrderCount ?? 0,
-              });
-              // Refresh open detail panel if it contains this skin
-              if (expandedRow !== null) {
-                const r = currentResults[expandedRow];
-                if (r && r.outputs.some(o => o.hashName === ev.hashName)) {
-                  const detail = document.getElementById('detail-' + expandedRow);
-                  if (detail && detail.style.display !== 'none')
-                    detail.querySelector('td').innerHTML = renderDetail(r);
-                }
-              }
-            }
-          }
-          if (ev.type === 'done') {
-            btn.disabled = false;
-            btn.innerHTML = `📊 Buy orders ✓ (${buyOrderPrices.size})`;
-          }
-        } catch {}
-      }
-    }
-  } catch (e) {
-    if (e.name !== 'AbortError') {
-      btn.disabled = false;
-      btn.innerHTML = '📊 Fetch buy orders';
-    }
   }
 }
 
@@ -917,19 +817,10 @@ async function runScan() {
     lastScanCount = data.count;
     currentResults = data.results;
     currentPriceSource = scanPriceSource;
-    hasCsfloatKey = data.hasCsfloatKey ?? false;
-    buyOrderPrices.clear();
     document.getElementById('stu').textContent = data.count;
     document.getElementById('scanMeta').textContent = `${data.count} results in ${elapsed}s`;
     renderResults(data.results);
     loadMarketQuotes(data.results);
-    // Show buy-order button when CSFloat key is present and we have results
-    const boBtn = document.getElementById('buyOrderBtn');
-    if (boBtn) {
-      boBtn.style.display = (hasCsfloatKey && scanPriceSource === 'csfloat' && data.count > 0) ? 'inline-flex' : 'none';
-      boBtn.disabled = false;
-      boBtn.innerHTML = '📊 Fetch buy orders';
-    }
     // Only verify prices against Steam when using Steam as price source
     if (data.results.length && scanPriceSource === 'steam') startVerification(data.results);
   } catch(e) {
@@ -948,6 +839,19 @@ async function loadMarketQuotes(results) {
       if (seen.has(inp.hashName)) continue;
       seen.add(inp.hashName);
       items.push({ hashName: inp.hashName, condition: inp.condition, statTrak: inp.statTrak, count: inp.count });
+    }
+    for (const out of r.outputs) {
+      if (seen.has(out.hashName)) continue;
+      seen.add(out.hashName);
+      items.push({
+        hashName: out.hashName,
+        condition: out.condition,
+        statTrak: out.statTrak,
+        count: 1,
+        defIndex: out.defIndex,
+        paintIndex: out.paintIndex,
+        estimatedFloat: out.float,
+      });
     }
   }
   if (!items.length) return;
@@ -976,18 +880,22 @@ async function loadMarketQuotes(results) {
   }
 }
 
-function marketQuoteButton(label, url, lowestCents, averageCents, count, color) {
+function marketQuoteButton(label, url, lowestCents, averageCents, count, color, showAverage = true, extra = '') {
   const price = lowestCents != null
-    ? ` ${fmtUsd(lowestCents / 100)} / ${fmtUsd((averageCents ?? lowestCents) / 100)} avg (${count}×)`
+    ? showAverage
+      ? ` ${fmtUsd(lowestCents / 100)} / ${fmtUsd((averageCents ?? lowestCents) / 100)} avg (${count}×)`
+      : ` ${fmtUsd(lowestCents / 100)}${extra}`
     : ' —';
   return `<a href="${url}" target="_blank" rel="noopener"
     style="display:block;width:220px;font-size:.68rem;padding:2px 6px;background:#1a2535;border:1px solid ${color};color:${color};border-radius:4px;text-decoration:none;text-align:left"
     title="Open ${label} market listing">${label}${price}</a>`;
 }
 
-function dmarketQuoteButton(url, lowestCents, averageCents, count) {
+function dmarketQuoteButton(url, lowestCents, averageCents, count, showAverage = true) {
   const label = lowestCents != null
-    ? `DMarket ${fmtUsd(lowestCents / 100)} / ${fmtUsd((averageCents ?? lowestCents) / 100)} avg (${count}×)`
+    ? showAverage
+      ? `DMarket ${fmtUsd(lowestCents / 100)} / ${fmtUsd((averageCents ?? lowestCents) / 100)} avg (${count}×)`
+      : `DMarket ${fmtUsd(lowestCents / 100)}`
     : 'DMarket —';
   return `<a href="${url}" target="_blank" rel="noopener"
     style="display:block;width:220px;font-size:.68rem;padding:2px 6px;background:#1a2535;border:1px solid #e07b39;color:#e07b39;border-radius:4px;text-decoration:none;text-align:left"
@@ -1118,34 +1026,6 @@ function recalcDetail(detailEl, r) {
   detailEl.querySelector('[data-live-fee]').textContent = feeLabel + '%';
 }
 
-/** Apply a single buy-order price to the nearest output price input */
-function applyBuyOrder(btn, boUsd) {
-  const row = btn.closest('.item-row');
-  const inp = row?.querySelector('[data-out-price]');
-  if (!inp) return;
-  inp.value = boUsd.toFixed(2);
-  inp.style.borderColor = 'var(--accent)';
-  recalcDetail(inp.closest('.detail-inner'), window._lastResult);
-}
-
-/** Apply all available buy-order prices to every output price input in the detail panel */
-function applyAllBuyOrders(detailEl, r) {
-  detailEl.querySelectorAll('[data-out-price]').forEach(inp => {
-    // Find the hashName for this output row via the CSFloat link
-    const link = inp.closest('.item-row')?.querySelector('a[href*="csfloat"]');
-    if (!link) return;
-    // Match by iterating r.outputs and finding the one whose price matches the original
-    const orig = parseFloat(inp.dataset.orig);
-    const match = r.outputs.find(o => Math.abs(o.priceUsd - orig) < 0.01 || (o._verifiedPriceCents != null && Math.abs(o._verifiedPriceCents / 100 - orig) < 0.01));
-    if (!match) return;
-    const boEntry = buyOrderPrices.get(match.hashName);
-    if (!boEntry) return;
-    inp.value = (boEntry.buyOrderCents / 100).toFixed(2);
-    inp.style.borderColor = '#4a8a4a';
-  });
-  recalcDetail(detailEl, r);
-}
-
 function resetDetailPrices(detailEl, r) {
   detailEl.querySelectorAll('[data-inp-price]').forEach(el => {
     el.value = el.dataset.orig;
@@ -1214,7 +1094,7 @@ function renderDetail(r) {
         <span class="iprice" style="text-align:right">${priceInput}${inpIlliquid ? '' : '<div style="font-size:.68rem;color:var(--dim)">ea</div>'}</span>
         <div style="display:flex;flex-direction:column;align-items:stretch;gap:3px;flex-shrink:0">
           ${currentPriceSource === 'csfloat'
-            ? marketQuoteButton('CF Buy', inp.csfloatUrl || '#', inp.priceUsd * 100, inp.priceUsd * 100, inp.count, 'var(--accent2)')
+            ? marketQuoteButton('CSFloat', inp.csfloatUrl || '#', inp.priceUsd * 100, inp.priceUsd * 100, inp.count, 'var(--accent2)')
             : `<a href="${inp.marketUrl}" target="_blank" rel="noopener"
                  style="display:block;width:220px;font-size:.68rem;padding:2px 6px;background:#1a2535;border:1px solid var(--accent2);color:var(--accent2);border-radius:4px;text-decoration:none;text-align:left"
                  title="Buy on Steam Market">Steam Market ${fmtUsd(inp.priceUsd)}</a>`}
@@ -1258,23 +1138,13 @@ function renderDetail(r) {
                  style="font-size:.65rem;background:#2a1a1a;color:#e87030;border:1px solid #8a4020;border-radius:3px;padding:1px 5px;cursor:help">⚠ Doppler — agregovaná cena</span>`)
       : '';
     const effectivePrice = out._verifiedPriceCents != null ? out._verifiedPriceCents / 100 : out.priceUsd;
+    const outputQuote = marketQuotes.get(out.hashName);
     const outPriceInput = `<input type="number" step="0.01" min="0" value="${effectivePrice.toFixed(2)}"
          data-out-price data-out-prob="${out.probability}" data-orig="${effectivePrice.toFixed(2)}"
          style="width:72px;padding:2px 5px;background:var(--surf3);border:1px solid var(--border2);color:var(--text);border-radius:4px;font-size:.82rem;text-align:right"
          oninput="this.style.borderColor=this.value!=this.dataset.orig?'var(--accent)':'var(--border2)';recalcDetail(this.closest('.detail-inner'),window._lastResult)"
          title="Edit price to recalculate profit">`;
 
-    // Buy order price for this output skin
-    const boEntry = buyOrderPrices.get(out.hashName);
-    const boUsd = boEntry ? boEntry.buyOrderCents / 100 : null;
-    const boHtml = boUsd != null
-      ? `<div style="margin-top:3px;font-size:.7rem;display:flex;align-items:center;gap:6px;flex-wrap:wrap">
-           <span style="color:#7ecf7e;font-weight:600">📥 Best buy order: $${boUsd.toFixed(2)}</span>
-           <span style="color:var(--dim)">${boEntry.buyOrderCount} order${boEntry.buyOrderCount !== 1 ? 's' : ''}</span>
-           <button onclick="applyBuyOrder(this,${boUsd.toFixed(2)})" title="Apply buy-order price to this output"
-             style="font-size:.68rem;padding:1px 6px;background:#1a3a1a;border:1px solid #4a8a4a;color:#7ecf7e;border-radius:3px;cursor:pointer;line-height:1.4">Apply</button>
-         </div>`
-      : (hasCsfloatKey ? '' : '');
 
     return `<div class="item-row">
       <div class="iname">
@@ -1286,12 +1156,13 @@ function renderDetail(r) {
         <span class="iprob">${out.probability.toFixed(1)}%</span>
         <span class="iprice" style="text-align:right">
           ${outPriceInput}
-          ${boHtml}
           ${priceHtml.includes('⏳') ? '<div style="font-size:.65rem;color:var(--dim)">listing</div>' : ''}
         </span>
-        <a href="${currentPriceSource === 'csfloat' ? (out.csfloatUrl||'#') : out.marketUrl}" target="_blank" rel="noopener"
-           style="font-size:.72rem;padding:2px 7px;background:#1a2535;border:1px solid var(--border2);color:var(--dim);border-radius:4px;text-decoration:none;flex-shrink:0"
-           title="${currentPriceSource === 'csfloat' ? 'View on CSFloat' : 'View on Steam Market'}">${currentPriceSource === 'csfloat' ? 'CSFloat' : '📈 Market'}</a>
+        <div style="display:flex;flex-direction:column;align-items:stretch;gap:3px;flex-shrink:0">
+          ${marketQuoteButton('CSFloat', out.csfloatUrl || '#', effectivePrice * 100, effectivePrice * 100, 1, 'var(--accent2)', false, outputQuote?.csfloatBuyOrderCents != null ? ` / buy order ${fmtUsd(outputQuote.csfloatBuyOrderCents / 100)}` : '')}
+          ${marketQuoteButton('CS.Money', outputQuote?.csMoneyUrl || out.csMoneyUrl || '#', outputQuote?.csMoneyPriceCents, outputQuote?.csMoneyAveragePriceCents, 1, '#d7a84d', false)}
+          ${dmarketQuoteButton(outputQuote?.dmarketUrl || out.dmarketUrl || '#', outputQuote?.dmarketLowestPriceCents, outputQuote?.dmarketAveragePriceCents, 1, false)}
+        </div>
       </div>
     </div>`;
   }).join('');
@@ -1304,9 +1175,6 @@ function renderDetail(r) {
       <div class="sec-title" style="display:flex;justify-content:space-between;align-items:center;gap:8px;flex-wrap:wrap">
         <span>Inputs (${r.contractSize} skins) — Total: <b data-live-cost>${fmtUsd(totalCost)}</b></span>
         <div style="display:flex;gap:6px">
-          ${buyOrderPrices.size > 0 ? `<button onclick="applyAllBuyOrders(this.closest('.detail-inner'),window._lastResult)"
-            style="font-size:.72rem;padding:2px 8px;background:#1a3a1a;border:1px solid #4a8a4a;color:#7ecf7e;border-radius:4px;cursor:pointer"
-            title="Set all output prices to their highest buy-order price (immediate sell price)">📥 Apply all buy orders</button>` : ''}
           <button onclick="resetDetailPrices(this.closest('.detail-inner'),window._lastResult)"
             style="font-size:.72rem;padding:2px 8px;background:var(--surf3);border:1px solid var(--border2);color:var(--dim);border-radius:4px;cursor:pointer">↺ Reset cen</button>
         </div>
