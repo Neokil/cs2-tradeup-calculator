@@ -206,6 +206,30 @@ nav{background:var(--surf);border-bottom:1px solid var(--border);display:flex;al
   <div class="controls">
     <div class="field"><label>Min ROI %</label><input type="number" id="minRoi" value="100" min="0" max="999" style="width:80px"></div>
     <div class="field"><label>Max results</label><input type="number" id="maxRes" value="50" min="1" max="500" style="width:80px"></div>
+    <div class="field"><label title="Only include trade-ups whose total input cost is within this range.">Budget (€)</label>
+      <span style="display:flex;align-items:center;gap:4px">
+        <input type="number" id="minBudget" placeholder="min" min="0" step="0.01" style="width:68px">
+        <span style="color:var(--dim)">–</span>
+        <input type="number" id="maxBudget" placeholder="max" min="0" step="0.01" style="width:68px">
+      </span>
+    </div>
+    <div class="field"><label title="Maximum number of collections allowed in one trade-up. Auto uses two when the scan size is manageable.">Max collections</label>
+      <select id="maxCollections" onchange="updateSearchStrategyOptions()">
+        <option value="auto" selected>Auto</option>
+        <option value="1">1 collection</option>
+        <option value="2">Up to 2</option>
+        <option value="3">Up to 3</option>
+        <option value="4">Up to 4</option>
+        <option value="5">Up to 5</option>
+      </select>
+    </div>
+    <div class="field"><label title="Exact checks every combination; Beam keeps only the most promising higher-order states.">Search strategy</label>
+      <select id="searchStrategy">
+        <option value="auto" selected>Auto</option>
+        <option value="exact">Exact (1–2 only)</option>
+        <option value="beam">Beam</option>
+      </select>
+    </div>
     <div class="field"><label>StatTrak™</label>
       <select id="statTrak"><option value="false">No</option><option value="true">Yes</option></select>
     </div>
@@ -451,6 +475,9 @@ const illiquidSkins = new Set();
 // Buy order prices: hashName → { buyOrderCents, buyOrderCount }
 const buyOrderPrices = new Map();
 let buyOrderCtrl = null;
+// hashName -> targeted CS.Money/DMarket quote and links
+const marketQuotes = new Map();
+let marketQuoteCtrl = null;
 
 function recomputeResult(r, overrides) {
   // overrides: Map<hashName, medianPriceCents>
@@ -853,6 +880,17 @@ async function fetchBuyOrders() {
 // ── Scan ──────────────────────────────────────────────────────────
 let expandedRow = null;
 
+function updateSearchStrategyOptions() {
+  const maxCollections = document.getElementById('maxCollections')?.value;
+  const strategy = document.getElementById('searchStrategy');
+  const exact = strategy?.querySelector('option[value="exact"]');
+  if (!strategy || !exact) return;
+
+  const exactAllowed = maxCollections === 'auto' || Number(maxCollections) <= 2;
+  exact.disabled = !exactAllowed;
+  if (!exactAllowed && strategy.value === 'exact') strategy.value = 'auto';
+}
+
 async function runScan() {
   const btn = document.getElementById('scanBtn');
   btn.disabled = true; btn.innerHTML = '<span class="spin"></span> Scanning…';
@@ -865,8 +903,13 @@ async function runScan() {
     const maxRes = +document.getElementById('maxRes').value;
     const statTrak = document.getElementById('statTrak').value;
     const floatMode = document.getElementById('floatMode').value;
+    const maxCollections = document.getElementById('maxCollections').value;
+    const searchStrategy = document.getElementById('searchStrategy').value;
+    const minBudget = document.getElementById('minBudget').value;
+    const maxBudget = document.getElementById('maxBudget').value;
     const scanPriceSource = document.getElementById('scanPriceSource').value;
-    const url = `${API}/api/scan?minRoi=${minRoi}&maxResults=${maxRes}&statTrak=${statTrak}&floatMode=${floatMode}&priceSource=${scanPriceSource}`;
+    const budgetParams = new URLSearchParams({ minBudget, maxBudget });
+    const url = `${API}/api/scan?minRoi=${minRoi}&maxResults=${maxRes}&statTrak=${statTrak}&floatMode=${floatMode}&maxCollections=${maxCollections}&searchStrategy=${searchStrategy}&${budgetParams}&priceSource=${scanPriceSource}`;
     const t0 = Date.now();
     const data = await fetch(url).then(r => r.json());
     if (data.error) throw new Error(data.error);
@@ -879,6 +922,7 @@ async function runScan() {
     document.getElementById('stu').textContent = data.count;
     document.getElementById('scanMeta').textContent = `${data.count} results in ${elapsed}s`;
     renderResults(data.results);
+    loadMarketQuotes(data.results);
     // Show buy-order button when CSFloat key is present and we have results
     const boBtn = document.getElementById('buyOrderBtn');
     if (boBtn) {
@@ -894,6 +938,58 @@ async function runScan() {
   } finally {
     btn.disabled = false; btn.innerHTML = '🔍 Scan for profits';
   }
+}
+
+async function loadMarketQuotes(results) {
+  const items = [];
+  const seen = new Set();
+  for (const r of results) {
+    for (const inp of r.inputs) {
+      if (seen.has(inp.hashName)) continue;
+      seen.add(inp.hashName);
+      items.push({ hashName: inp.hashName, condition: inp.condition, statTrak: inp.statTrak, count: inp.count });
+    }
+  }
+  if (!items.length) return;
+  if (marketQuoteCtrl) marketQuoteCtrl.abort();
+  marketQuoteCtrl = new AbortController();
+
+  try {
+    const response = await fetch(API + '/api/market-quotes/batch', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ items }),
+      signal: marketQuoteCtrl.signal,
+    });
+    const data = await response.json();
+    for (const quote of data.quotes ?? []) marketQuotes.set(quote.hashName, quote);
+
+    if (expandedRow !== null) {
+      const detail = document.getElementById('detail-' + expandedRow);
+      const result = currentResults[expandedRow];
+      if (detail && result && detail.style.display !== 'none') {
+        detail.querySelector('td').innerHTML = renderDetail(result);
+      }
+    }
+  } catch (e) {
+    if (e.name !== 'AbortError') console.warn('Marketplace quote lookup failed', e);
+  }
+}
+
+function marketQuoteButton(label, url, priceCents, color) {
+  const price = priceCents != null ? ` ${fmtUsd(priceCents / 100)}` : ' —';
+  return `<a href="${url}" target="_blank" rel="noopener"
+    style="font-size:.68rem;padding:2px 6px;background:#1a2535;border:1px solid ${color};color:${color};border-radius:4px;text-decoration:none;flex-shrink:0"
+    title="Open ${label} market listing">${label}${price}</a>`;
+}
+
+function dmarketQuoteButton(url, lowestCents, averageCents) {
+  const label = lowestCents != null && averageCents != null
+    ? `DMarket ${fmtUsd(lowestCents / 100)} / ${fmtUsd(averageCents / 100)} avg`
+    : 'DMarket —';
+  return `<a href="${url}" target="_blank" rel="noopener"
+    style="font-size:.68rem;padding:2px 6px;background:#1a2535;border:1px solid #e07b39;color:#e07b39;border-radius:4px;text-decoration:none;flex-shrink:0"
+    title="DMarket: lowest price / average price for the required quantity">${label}</a>`;
 }
 
 function renderResults(results) {
@@ -1117,6 +1213,8 @@ function renderDetail(r) {
         <a href="${currentPriceSource === 'csfloat' ? (inp.csfloatUrl||'#') : inp.marketUrl}" target="_blank" rel="noopener"
            style="font-size:.72rem;padding:2px 7px;background:#1a2535;border:1px solid var(--accent2);color:var(--accent2);border-radius:4px;text-decoration:none;flex-shrink:0"
            title="${currentPriceSource === 'csfloat' ? 'Buy on CSFloat' : 'Buy on Steam Market'}">${currentPriceSource === 'csfloat' ? 'CF Buy' : '🛒 Buy'}</a>
+        ${(() => { const quote = marketQuotes.get(inp.hashName); return marketQuoteButton('CS.Money', quote?.csMoneyUrl || inp.csMoneyUrl, quote?.csMoneyPriceCents, '#d7a84d'); })()}
+        ${(() => { const quote = marketQuotes.get(inp.hashName); return dmarketQuoteButton(quote?.dmarketUrl || inp.dmarketUrl, quote?.dmarketLowestPriceCents, quote?.dmarketAveragePriceCents); })()}
       </div>
     </div>`;
   }).join('');

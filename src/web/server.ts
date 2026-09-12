@@ -10,9 +10,16 @@ import { floatToCondition } from '../models/enums.js';
 import { config } from '../config.js';
 import { fetchPriceOverview } from '../api/price-overview.js';
 import { buildMarketHashName } from '../api/prices.js';
+import { fetchMarketQuotes, MarketQuoteTarget, dmarketSearchUrl, csMoneySearchUrl } from '../api/market-quotes.js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const PUBLIC_DIR = path.resolve(__dirname, '../../public');
+
+function parseBudgetCents(value: string | undefined): number | undefined {
+  if (!value || value.trim() === '') return undefined;
+  const euros = Number.parseFloat(value);
+  return Number.isFinite(euros) && euros >= 0 ? Math.round(euros * 100) : undefined;
+}
 
 export function createServer(port = parseInt(process.env.PORT || '3000', 10)) {
   const app = express();
@@ -93,10 +100,25 @@ export function createServer(port = parseInt(process.env.PORT || '3000', 10)) {
       const statTrak   = req.query.statTrak   === 'true';
       const floatMode  = (['low', 'below_avg', 'mid', 'above_avg', 'high'] as const)
         .find(m => m === req.query.floatMode) ?? 'mid';
+      const maxCollections = (['1', '2', '3', '4', '5'] as const)
+        .find(value => value === req.query.maxCollections);
+      const searchStrategy = (['auto', 'exact', 'beam'] as const)
+        .find(value => value === req.query.searchStrategy) ?? 'auto';
+      if (searchStrategy === 'exact' && maxCollections && Number(maxCollections) > 2) {
+        return res.status(400).json({ error: 'Exact search is only available for up to 2 collections.' });
+      }
+      const minBudget = parseBudgetCents(req.query.minBudget as string | undefined);
+      const maxBudget = parseBudgetCents(req.query.maxBudget as string | undefined);
       const priceSource = (['steam', 'csfloat'] as const)
         .find(s => s === req.query.priceSource) ?? 'csfloat';
 
-      const results = findProfitableTradeUps({ minRoi, maxResults, statTrak, floatMode, priceSource });
+      const results = findProfitableTradeUps({
+        minRoi, maxResults, statTrak, floatMode, priceSource,
+        maxCollections: maxCollections ? Number(maxCollections) as 1 | 2 | 3 | 4 | 5 : undefined,
+        searchStrategy,
+        minBudgetCents: minBudget,
+        maxBudgetCents: maxBudget,
+      });
       _scanPriceSource = priceSource;
       const feeRate = priceSource === 'csfloat' ? config.csfloatFeeRate : config.steamTaxRate;
       res.json({ results: results.map(serializeResult), count: results.length, feeRate, priceSource, hasCsfloatKey: !!config.csfloatApiKey });
@@ -168,6 +190,28 @@ export function createServer(port = parseInt(process.env.PORT || '3000', 10)) {
         FROM prices WHERE skin_id = ? AND price_cents > 0 ORDER BY condition
       `).all(req.params.id);
       res.json(rows);
+    } catch (e: any) { res.status(500).json({ error: e.message }); }
+  });
+
+  // ── POST /api/market-quotes/batch ───────────────────────────────────────
+  // Fetches targeted marketplace quotes for the inputs of displayed results.
+  // This is intentionally separate from the regular price sync.
+  app.post('/api/market-quotes/batch', async (req, res) => {
+    try {
+      const items = req.body?.items as MarketQuoteTarget[] | undefined;
+      if (!Array.isArray(items) || items.length === 0) return res.json({ quotes: [] });
+
+      const targets = items
+        .filter(item => typeof item?.hashName === 'string' && item.hashName.length > 0)
+        .slice(0, 100)
+        .map(item => ({
+          hashName: item.hashName,
+          condition: item.condition,
+          statTrak: item.statTrak === true,
+          count: Math.max(1, Math.min(Number(item.count) || 1, 100)),
+        }));
+      const quotes = await fetchMarketQuotes(targets);
+      res.json({ quotes });
     } catch (e: any) { res.status(500).json({ error: e.message }); }
   });
 
@@ -426,9 +470,9 @@ let _scanPriceSource: 'steam' | 'csfloat' = 'csfloat';
 function serializeResult(r: EvaluatedTradeUp) {
   // Deduplicate inputs by skin+condition
   const inputMap = new Map<string, {
-    skinId: string; name: string; collection: string; condition: Condition; count: number;
+    skinId: string; name: string; collection: string; condition: Condition; count: number; statTrak: boolean;
     priceUsd: number; inputFloat: number; minFloat: number; maxFloat: number;
-    marketUrl: string; csfloatUrl: string; hashName: string;
+    marketUrl: string; csfloatUrl: string; dmarketUrl: string; csMoneyUrl: string; hashName: string;
   }>();
   for (const inp of r.inputs) {
     const k = `${inp.skin.id}:${inp.condition}`;
@@ -441,12 +485,21 @@ function serializeResult(r: EvaluatedTradeUp) {
         collection: getCollectionName(inp.skin.collectionId),
         condition: inp.condition,
         count: 1,
+        statTrak: inp.statTrak,
         priceUsd: inp.priceCents / 100,
         inputFloat: parseFloat(inp.estimatedFloat.toFixed(4)),
         minFloat: inp.skin.minFloat,
         maxFloat: inp.skin.maxFloat,
         marketUrl: steamMarketUrl(inp.skin.weaponName, inp.skin.patternName, inp.condition, inp.statTrak),
         csfloatUrl: csfloatUrl(inp.skin, inp.condition, inp.statTrak),
+        dmarketUrl: dmarketSearchUrl(
+          buildMarketHashName(inp.skin.weaponName, inp.skin.patternName, inp.condition, inp.statTrak),
+          inp.condition,
+        ),
+        csMoneyUrl: csMoneySearchUrl(
+          buildMarketHashName(inp.skin.weaponName, inp.skin.patternName, inp.condition, inp.statTrak),
+          inp.condition,
+        ),
         hashName: buildMarketHashName(inp.skin.weaponName, inp.skin.patternName, inp.condition, inp.statTrak),
       });
     }
