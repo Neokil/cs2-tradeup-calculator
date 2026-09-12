@@ -1,9 +1,8 @@
 import { Condition } from '../models/enums.js';
+import { fetchCSMoneyPricesFromPriceEmpire } from './pricempire-prices.js';
 
 const DMARKET_ITEMS_URL = 'https://api.dmarket.com/exchange/v1/market/items/v2';
 const DMARKET_PAGE_SIZE = 10;
-const CSMONEY_ITEMS_URL = 'https://cs.money/2.0/market/sell-orders';
-const CSMONEY_PAGE_SIZE = 10;
 
 const EXTERIOR_NAMES: Record<Condition, string> = {
   [Condition.FactoryNew]: 'factory new',
@@ -26,6 +25,7 @@ export interface MarketQuote {
   dmarketAveragePriceCents: number | null;
   dmarketUrl: string;
   csMoneyPriceCents: number | null;
+  csMoneyAveragePriceCents: number | null;
   csMoneyUrl: string;
 }
 
@@ -36,17 +36,6 @@ interface DMarketOffer {
 
 interface DMarketResponse {
   offers?: DMarketOffer[];
-}
-
-interface CSMoneyResponse {
-  items?: CSMoneyItem[];
-  sellOrders?: CSMoneyItem[];
-  data?: CSMoneyItem[] | { items?: CSMoneyItem[]; sellOrders?: CSMoneyItem[] };
-}
-
-interface CSMoneyItem {
-  price?: number | string;
-  priceCents?: number | string;
 }
 
 export async function fetchMarketQuotes(
@@ -60,6 +49,7 @@ export async function fetchMarketQuotes(
   }
   const unique = [...uniqueByHash.values()];
   const quotes: MarketQuote[] = [];
+  const priceEmpirePrices = await fetchCSMoneyPricesFromPriceEmpire(unique);
 
   for (let i = 0; i < unique.length; i++) {
     if (i > 0) await sleep(delayMs);
@@ -67,69 +57,19 @@ export async function fetchMarketQuotes(
     const dmarketUrl = dmarketSearchUrl(target.hashName, target.condition);
     const csMoneyUrl = csMoneySearchUrl(target.hashName, target.condition);
     const dmarketPrices = await fetchDMarketPrices(target);
-    const csMoneyPriceCents = await fetchCSMoneyLowestPrice(target);
+    const csMoneyPrices = priceEmpirePrices.get(target.hashName) ?? null;
     quotes.push({
       hashName: target.hashName,
       dmarketLowestPriceCents: dmarketPrices?.lowestPriceCents ?? null,
       dmarketAveragePriceCents: dmarketPrices?.averagePriceCents ?? null,
       dmarketUrl,
-      csMoneyPriceCents,
+      csMoneyPriceCents: csMoneyPrices?.lowestPriceCents ?? null,
+      csMoneyAveragePriceCents: csMoneyPrices?.averagePriceCents ?? null,
       csMoneyUrl,
     });
   }
 
   return quotes;
-}
-
-async function fetchCSMoneyLowestPrice(target: MarketQuoteTarget): Promise<number | null> {
-  const url = new URL(CSMONEY_ITEMS_URL);
-  url.searchParams.set('limit', String(CSMONEY_PAGE_SIZE));
-  url.searchParams.set('offset', '0');
-  url.searchParams.set('deliverySpeed', 'instant');
-  url.searchParams.set('name', target.hashName);
-
-  try {
-    const response = await fetch(url, {
-      headers: {
-        Accept: '*/*',
-        'Content-Type': 'application/json',
-        'Content-Language': 'en',
-        'X-Client-App': 'web',
-        Origin: 'https://cs.money',
-        Referer: 'https://cs.money/market/buy/',
-        'User-Agent': 'Mozilla/5.0 (compatible; CS2TradeUpCalc/1.0)',
-      },
-    });
-    if (!response.ok) return null;
-
-    const data = await response.json() as CSMoneyResponse;
-    const items = getCSMoneyItems(data);
-    const prices = items
-      .map(item => item.priceCents != null
-        ? parseNumber(item.priceCents)
-        : (parseNumber(item.price) ?? 0) * 100)
-      .filter((price): price is number => price != null && price > 0);
-    return prices.length ? Math.min(...prices) : null;
-  } catch {
-    return null;
-  }
-}
-
-function getCSMoneyItems(data: CSMoneyResponse): CSMoneyItem[] {
-  if (Array.isArray(data.items)) return data.items;
-  if (Array.isArray(data.sellOrders)) return data.sellOrders;
-  if (Array.isArray(data.data)) return data.data;
-  if (data.data && !Array.isArray(data.data)) {
-    if (Array.isArray(data.data.items)) return data.data.items;
-    if (Array.isArray(data.data.sellOrders)) return data.data.sellOrders;
-  }
-  return [];
-}
-
-function parseNumber(value: number | string | undefined): number | null {
-  if (value == null) return null;
-  const parsed = typeof value === 'number' ? value : Number.parseFloat(value);
-  return Number.isFinite(parsed) ? parsed : null;
 }
 
 async function fetchDMarketPrices(target: MarketQuoteTarget): Promise<{

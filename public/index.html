@@ -976,19 +976,21 @@ async function loadMarketQuotes(results) {
   }
 }
 
-function marketQuoteButton(label, url, priceCents, color) {
-  const price = priceCents != null ? ` ${fmtUsd(priceCents / 100)}` : ' —';
+function marketQuoteButton(label, url, lowestCents, averageCents, count, color) {
+  const price = lowestCents != null
+    ? ` ${fmtUsd(lowestCents / 100)} / ${fmtUsd((averageCents ?? lowestCents) / 100)} avg (${count}×)`
+    : ' —';
   return `<a href="${url}" target="_blank" rel="noopener"
-    style="font-size:.68rem;padding:2px 6px;background:#1a2535;border:1px solid ${color};color:${color};border-radius:4px;text-decoration:none;flex-shrink:0"
+    style="display:block;width:220px;font-size:.68rem;padding:2px 6px;background:#1a2535;border:1px solid ${color};color:${color};border-radius:4px;text-decoration:none;text-align:left"
     title="Open ${label} market listing">${label}${price}</a>`;
 }
 
-function dmarketQuoteButton(url, lowestCents, averageCents) {
-  const label = lowestCents != null && averageCents != null
-    ? `DMarket ${fmtUsd(lowestCents / 100)} / ${fmtUsd(averageCents / 100)} avg`
+function dmarketQuoteButton(url, lowestCents, averageCents, count) {
+  const label = lowestCents != null
+    ? `DMarket ${fmtUsd(lowestCents / 100)} / ${fmtUsd((averageCents ?? lowestCents) / 100)} avg (${count}×)`
     : 'DMarket —';
   return `<a href="${url}" target="_blank" rel="noopener"
-    style="font-size:.68rem;padding:2px 6px;background:#1a2535;border:1px solid #e07b39;color:#e07b39;border-radius:4px;text-decoration:none;flex-shrink:0"
+    style="display:block;width:220px;font-size:.68rem;padding:2px 6px;background:#1a2535;border:1px solid #e07b39;color:#e07b39;border-radius:4px;text-decoration:none;text-align:left"
     title="DMarket: lowest price / average price for the required quantity">${label}</a>`;
 }
 
@@ -1208,13 +1210,17 @@ function renderDetail(r) {
         <div class="sub">${inp.collection}</div>
         ${floatInputEl}
       </div>
-      <div style="display:flex;align-items:center;gap:8px;flex-shrink:0">
+      <div style="display:flex;align-items:flex-start;gap:8px;flex-shrink:0">
         <span class="iprice" style="text-align:right">${priceInput}${inpIlliquid ? '' : '<div style="font-size:.68rem;color:var(--dim)">ea</div>'}</span>
-        <a href="${currentPriceSource === 'csfloat' ? (inp.csfloatUrl||'#') : inp.marketUrl}" target="_blank" rel="noopener"
-           style="font-size:.72rem;padding:2px 7px;background:#1a2535;border:1px solid var(--accent2);color:var(--accent2);border-radius:4px;text-decoration:none;flex-shrink:0"
-           title="${currentPriceSource === 'csfloat' ? 'Buy on CSFloat' : 'Buy on Steam Market'}">${currentPriceSource === 'csfloat' ? 'CF Buy' : '🛒 Buy'}</a>
-        ${(() => { const quote = marketQuotes.get(inp.hashName); return marketQuoteButton('CS.Money', quote?.csMoneyUrl || inp.csMoneyUrl, quote?.csMoneyPriceCents, '#d7a84d'); })()}
-        ${(() => { const quote = marketQuotes.get(inp.hashName); return dmarketQuoteButton(quote?.dmarketUrl || inp.dmarketUrl, quote?.dmarketLowestPriceCents, quote?.dmarketAveragePriceCents); })()}
+        <div style="display:flex;flex-direction:column;align-items:stretch;gap:3px;flex-shrink:0">
+          ${currentPriceSource === 'csfloat'
+            ? marketQuoteButton('CF Buy', inp.csfloatUrl || '#', inp.priceUsd * 100, inp.priceUsd * 100, inp.count, 'var(--accent2)')
+            : `<a href="${inp.marketUrl}" target="_blank" rel="noopener"
+                 style="display:block;width:220px;font-size:.68rem;padding:2px 6px;background:#1a2535;border:1px solid var(--accent2);color:var(--accent2);border-radius:4px;text-decoration:none;text-align:left"
+                 title="Buy on Steam Market">Steam Market ${fmtUsd(inp.priceUsd)}</a>`}
+          ${(() => { const quote = marketQuotes.get(inp.hashName); return marketQuoteButton('CS.Money', quote?.csMoneyUrl || inp.csMoneyUrl, quote?.csMoneyPriceCents, quote?.csMoneyAveragePriceCents, inp.count, '#d7a84d'); })()}
+          ${(() => { const quote = marketQuotes.get(inp.hashName); return dmarketQuoteButton(quote?.dmarketUrl || inp.dmarketUrl, quote?.dmarketLowestPriceCents, quote?.dmarketAveragePriceCents, inp.count); })()}
+        </div>
       </div>
     </div>`;
   }).join('');

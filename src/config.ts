@@ -1,3 +1,4 @@
+import './env.js';
 import { fileURLToPath } from 'url';
 import path from 'path';
 
@@ -16,7 +17,6 @@ export const config = {
   // CSFloat API key — enables per-phase Doppler prices (optional)
   // Get yours at: https://csfloat.com/developer
   csfloatApiKey: process.env.CSFLOAT_API_KEY || '',
-
   // ByMykel CSGO-API base URL
   csgoApiBase: 'https://raw.githubusercontent.com/ByMykel/CSGO-API/main/public/api/en',
 

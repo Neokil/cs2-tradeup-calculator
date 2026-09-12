@@ -21,6 +21,7 @@ A trade-up contract converts ten skins of one rarity into a single random skin o
 
 ```bash
 npm install
+npx playwright install chromium
 npm run sync        # pull collections + initial prices into data/*.db
 npm run scan        # find profitable contracts (CLI)
 npm run dev web     # web UI on http://localhost:3000
