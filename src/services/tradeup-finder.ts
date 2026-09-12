@@ -309,6 +309,8 @@ export interface FinderOptions {
   floatMode?: FloatMode;
   priceSource?: PriceSource;
   maxCollections?: 1 | 2 | 3 | 4 | 5;
+  minBudgetCents?: number;
+  maxBudgetCents?: number;
 }
 
 export function findProfitableTradeUps(options: FinderOptions = {}): EvaluatedTradeUp[] {
@@ -320,6 +322,8 @@ export function findProfitableTradeUps(options: FinderOptions = {}): EvaluatedTr
     floatMode = 'mid',
     priceSource = 'csfloat',
     maxCollections,
+    minBudgetCents,
+    maxBudgetCents,
   } = options;
 
   const results: EvaluatedTradeUp[] = [];
@@ -354,8 +358,15 @@ export function findProfitableTradeUps(options: FinderOptions = {}): EvaluatedTr
     for (const allocations of generateAllocations(withPrices, 10, maxColls)) {
       const maxPossibleEv = upperBound(allocations, outputRarity, statTrak, priceSource);
       const minCost = lowerBound(allocations, inputRarity, statTrak, priceSource);
+      const inputBounds = inputCostBounds(allocations, inputRarity, statTrak, priceSource);
       const _feeRate = priceSource === 'csfloat' ? config.csfloatFeeRate : config.steamTaxRate;
-      if (minCost === null || maxPossibleEv * (1 - _feeRate) < minCost) {
+      if (
+        minCost === null ||
+        !inputBounds ||
+        (maxBudgetCents != null && inputBounds.minCents > maxBudgetCents) ||
+        (minBudgetCents != null && inputBounds.maxCents < minBudgetCents) ||
+        maxPossibleEv * (1 - _feeRate) < minCost
+      ) {
         pruned++;
         continue;
       }
@@ -372,6 +383,11 @@ export function findProfitableTradeUps(options: FinderOptions = {}): EvaluatedTr
         if (skinGroups.some(g => g.length === 0)) continue;
 
         for (const skinSel of cartesianSkins(skinGroups)) {
+          const inputCostCents = allocations.reduce((sum, allocation, i) =>
+            sum + getPrice(skinSel[i].id, conditions[i], statTrak, priceSource) * allocation.count, 0
+          );
+          if (minBudgetCents != null && inputCostCents < minBudgetCents) continue;
+          if (maxBudgetCents != null && inputCostCents > maxBudgetCents) continue;
           const result = evaluateWithSkins(allocations, inputRarity, conditions, skinSel, statTrak, floatMode, priceSource);
           evaluated++;
           if (result && result.roi >= minRoi) results.push(result);
@@ -486,7 +502,10 @@ function evaluateCaseTradeUp(
 }
 
 function findProfitableCaseTradeUps(options: FinderOptions): EvaluatedTradeUp[] {
-  const { maxResults = 50, statTrak = false, floatMode = 'mid', priceSource = 'csfloat' } = options;
+  const {
+    maxResults = 50, statTrak = false, floatMode = 'mid', priceSource = 'csfloat',
+    minBudgetCents, maxBudgetCents,
+  } = options;
   const minRoi = -Infinity;
   const results: EvaluatedTradeUp[] = [];
   const casesMap = getCasesWithKnives();
@@ -500,7 +519,11 @@ function findProfitableCaseTradeUps(options: FinderOptions): EvaluatedTradeUp[] 
 
     for (const cond of availConds) {
       const result = evaluateCaseTradeUp(crateId, entry, cond, statTrak, floatMode, priceSource);
-      if (result && result.roi >= minRoi) results.push(result);
+      if (
+        result && result.roi >= minRoi &&
+        (minBudgetCents == null || result.totalInputCostCents >= minBudgetCents) &&
+        (maxBudgetCents == null || result.totalInputCostCents <= maxBudgetCents)
+      ) results.push(result);
     }
   }
 
@@ -540,4 +563,23 @@ function lowerBound(
     totalMin += minPrice * alloc.count;
   }
   return totalMin;
+}
+
+function inputCostBounds(
+  allocations: CollectionAllocation[], inputRarity: Rarity,
+  statTrak: boolean, source: PriceSource,
+): { minCents: number; maxCents: number } | null {
+  let minCents = 0;
+  let maxCents = 0;
+
+  for (const allocation of allocations) {
+    const prices = getSkinsInCollection(allocation.collectionId, inputRarity)
+      .flatMap(skin => [...getPricesForSkin(skin.id, statTrak, source)].map(([, price]) => price))
+      .filter(price => price > 0);
+    if (!prices.length) return null;
+    minCents += Math.min(...prices) * allocation.count;
+    maxCents += Math.max(...prices) * allocation.count;
+  }
+
+  return { minCents, maxCents };
 }

@@ -15,6 +15,12 @@ import { fetchMarketQuotes, MarketQuoteTarget, dmarketSearchUrl, csMoneySearchUr
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const PUBLIC_DIR = path.resolve(__dirname, '../../public');
 
+function parseBudgetCents(value: string | undefined): number | undefined {
+  if (!value || value.trim() === '') return undefined;
+  const euros = Number.parseFloat(value);
+  return Number.isFinite(euros) && euros >= 0 ? Math.round(euros * 100) : undefined;
+}
+
 export function createServer(port = parseInt(process.env.PORT || '3000', 10)) {
   const app = express();
   app.use(express.json());
@@ -96,12 +102,16 @@ export function createServer(port = parseInt(process.env.PORT || '3000', 10)) {
         .find(m => m === req.query.floatMode) ?? 'mid';
       const maxCollections = (['1', '2', '3', '4', '5'] as const)
         .find(value => value === req.query.maxCollections);
+      const minBudget = parseBudgetCents(req.query.minBudget as string | undefined);
+      const maxBudget = parseBudgetCents(req.query.maxBudget as string | undefined);
       const priceSource = (['steam', 'csfloat'] as const)
         .find(s => s === req.query.priceSource) ?? 'csfloat';
 
       const results = findProfitableTradeUps({
         minRoi, maxResults, statTrak, floatMode, priceSource,
         maxCollections: maxCollections ? Number(maxCollections) as 1 | 2 | 3 | 4 | 5 : undefined,
+        minBudgetCents: minBudget,
+        maxBudgetCents: maxBudget,
       });
       _scanPriceSource = priceSource;
       const feeRate = priceSource === 'csfloat' ? config.csfloatFeeRate : config.steamTaxRate;
