@@ -10,7 +10,7 @@ import { floatToCondition } from '../models/enums.js';
 import { config } from '../config.js';
 import { fetchPriceOverview } from '../api/price-overview.js';
 import { buildMarketHashName } from '../api/prices.js';
-import { fetchMarketQuotes, MarketQuoteTarget } from '../api/market-quotes.js';
+import { fetchMarketQuotes, MarketQuoteTarget, dmarketSearchUrl, csMoneySearchUrl } from '../api/market-quotes.js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const PUBLIC_DIR = path.resolve(__dirname, '../../public');
@@ -476,8 +476,14 @@ function serializeResult(r: EvaluatedTradeUp) {
         maxFloat: inp.skin.maxFloat,
         marketUrl: steamMarketUrl(inp.skin.weaponName, inp.skin.patternName, inp.condition, inp.statTrak),
         csfloatUrl: csfloatUrl(inp.skin, inp.condition, inp.statTrak),
-        dmarketUrl: `https://dmarket.com/ingame-items/item-list/csgo-skins?title=${encodeURIComponent(inp.skin.weaponName + ' | ' + inp.skin.patternName)}`,
-        csMoneyUrl: `https://cs.money/market/buy/?search=${encodeURIComponent(inp.skin.weaponName + ' | ' + inp.skin.patternName)}`,
+        dmarketUrl: dmarketSearchUrl(
+          buildMarketHashName(inp.skin.weaponName, inp.skin.patternName, inp.condition, inp.statTrak),
+          inp.condition,
+        ),
+        csMoneyUrl: csMoneySearchUrl(
+          buildMarketHashName(inp.skin.weaponName, inp.skin.patternName, inp.condition, inp.statTrak),
+          inp.condition,
+        ),
         hashName: buildMarketHashName(inp.skin.weaponName, inp.skin.patternName, inp.condition, inp.statTrak),
       });
     }

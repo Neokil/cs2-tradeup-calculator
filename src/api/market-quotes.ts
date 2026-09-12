@@ -64,8 +64,8 @@ export async function fetchMarketQuotes(
   for (let i = 0; i < unique.length; i++) {
     if (i > 0) await sleep(delayMs);
     const target = unique[i];
-    const dmarketUrl = dmarketSearchUrl(target.hashName);
-    const csMoneyUrl = csMoneySearchUrl(target.hashName);
+    const dmarketUrl = dmarketSearchUrl(target.hashName, target.condition);
+    const csMoneyUrl = csMoneySearchUrl(target.hashName, target.condition);
     const dmarketPrices = await fetchDMarketPrices(target);
     const csMoneyPriceCents = await fetchCSMoneyLowestPrice(target);
     quotes.push({
@@ -178,12 +178,24 @@ async function fetchDMarketPrices(target: MarketQuoteTarget): Promise<{
   }
 }
 
-export function dmarketSearchUrl(hashName: string): string {
-  return `https://dmarket.com/ingame-items/item-list/csgo-skins?title=${encodeURIComponent(stripCondition(hashName))}`;
+export function dmarketSearchUrl(hashName: string, condition: Condition): string {
+  const params = new URLSearchParams({
+    title: stripCondition(hashName),
+    exterior: EXTERIOR_NAMES[condition],
+    orderBy: 'price',
+    orderDir: 'asc',
+  });
+  return `https://dmarket.com/ingame-items/item-list/csgo-skins?${params}`;
 }
 
-export function csMoneySearchUrl(hashName: string): string {
-  return `https://cs.money/market/buy/?search=${encodeURIComponent(stripCondition(hashName))}`;
+export function csMoneySearchUrl(hashName: string, condition: Condition): string {
+  const params = new URLSearchParams({
+    search: stripCondition(hashName),
+    order: 'asc',
+    sort: 'price',
+    exterior: condition,
+  });
+  return `https://cs.money/de/market/buy/?${params}`;
 }
 
 function stripCondition(hashName: string): string {
