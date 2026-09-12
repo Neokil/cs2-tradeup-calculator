@@ -35,39 +35,43 @@ export async function fetchCSMoneyPricesFromPriceEmpire(
   });
   const page = await browser.newPage();
 
-  for (const target of targets) {
-    const url = new URL(PRICEMPIRE_ITEM_URL);
-    url.searchParams.set('app', 'cs2');
-    url.searchParams.set('type', 'skin');
-    url.searchParams.set('slug', marketHashNameToSlug(target.hashName));
+  try {
+    for (const target of targets) {
+      const url = new URL(PRICEMPIRE_ITEM_URL);
+      url.searchParams.set('app', 'cs2');
+      url.searchParams.set('type', 'skin');
+      url.searchParams.set('slug', marketHashNameToSlug(target.hashName));
 
-    try {
-      const response = await page.goto(
-        url.toString(),
-        { waitUntil: "domcontentloaded" }
-      );
+      try {
+        const response = await page.goto(
+          url.toString(),
+          { waitUntil: "domcontentloaded" }
+        );
 
-      if (!response) {
-        throw new Error("No response received");
+        if (!response) {
+          throw new Error("No response received");
+        }
+
+        console.log("Status:", response.status());
+
+        const data = await response.json() as PriceEmpireItemResponse;
+        const asset = data.asset_items?.find(item => item.market_hash_name === target.hashName);
+        const providerPrice = asset?.prices?.find(price =>
+          price.provider_key === CSMONEY_PROVIDER && parsePrice(price.price) > 0
+        );
+        const priceCents = parsePrice(providerPrice?.price);
+        if (priceCents == null || priceCents <= 0) continue;
+
+        prices.set(target.hashName, {
+          lowestPriceCents: Math.round(priceCents),
+          averagePriceCents: Math.round(priceCents),
+        });
+      } catch (error) {
+        console.warn(`PriceEmpire CS.Money request failed for ${target.hashName}:`, error);
       }
-
-      console.log("Status:", response.status());
-
-      const data = await response.json() as PriceEmpireItemResponse;
-      const asset = data.asset_items?.find(item => item.market_hash_name === target.hashName);
-      const providerPrice = asset?.prices?.find(price =>
-        price.provider_key === CSMONEY_PROVIDER && parsePrice(price.price) > 0
-      );
-      const priceCents = parsePrice(providerPrice?.price);
-      if (priceCents == null || priceCents <= 0) continue;
-
-      prices.set(target.hashName, {
-        lowestPriceCents: Math.round(priceCents),
-        averagePriceCents: Math.round(priceCents),
-      });
-    } catch (error) {
-      console.warn(`PriceEmpire CS.Money request failed for ${target.hashName}:`, error);
     }
+  } finally {
+    await browser.close();
   }
 
   console.log(`PriceEmpire: matched ${prices.size}/${targets.length} CS.Money prices`);

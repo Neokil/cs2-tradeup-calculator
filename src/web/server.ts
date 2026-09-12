@@ -215,7 +215,10 @@ export function createServer(port = parseInt(process.env.PORT || '3000', 10)) {
         }));
       const quotes = await fetchMarketQuotes(targets);
       res.json({ quotes });
-    } catch (e: any) { res.status(500).json({ error: e.message }); }
+    } catch (e: any) {
+      console.error('Marketplace quote batch failed:', e);
+      res.status(500).json({ error: e.message || 'Marketplace quote batch failed' });
+    }
   });
 
   // ── POST /api/float/calculate ─────────────────────────────────────────────

@@ -55,7 +55,12 @@ export async function fetchMarketQuotes(
   }
   const unique = [...uniqueByHash.values()];
   const quotes: MarketQuote[] = [];
-  const priceEmpirePrices = await fetchCSMoneyPricesFromPriceEmpire(unique);
+  let priceEmpirePrices = new Map<string, { lowestPriceCents: number; averagePriceCents: number }>();
+  try {
+    priceEmpirePrices = await fetchCSMoneyPricesFromPriceEmpire(unique);
+  } catch (error) {
+    console.warn('PriceEmpire CS.Money provider failed; continuing with other providers:', error);
+  }
 
   for (let i = 0; i < unique.length; i++) {
     if (i > 0) await sleep(delayMs);
