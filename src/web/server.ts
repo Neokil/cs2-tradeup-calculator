@@ -94,10 +94,15 @@ export function createServer(port = parseInt(process.env.PORT || '3000', 10)) {
       const statTrak   = req.query.statTrak   === 'true';
       const floatMode  = (['low', 'below_avg', 'mid', 'above_avg', 'high'] as const)
         .find(m => m === req.query.floatMode) ?? 'mid';
+      const maxCollections = (['1', '2', '3', '4', '5'] as const)
+        .find(value => value === req.query.maxCollections);
       const priceSource = (['steam', 'csfloat'] as const)
         .find(s => s === req.query.priceSource) ?? 'csfloat';
 
-      const results = findProfitableTradeUps({ minRoi, maxResults, statTrak, floatMode, priceSource });
+      const results = findProfitableTradeUps({
+        minRoi, maxResults, statTrak, floatMode, priceSource,
+        maxCollections: maxCollections ? Number(maxCollections) as 1 | 2 | 3 | 4 | 5 : undefined,
+      });
       _scanPriceSource = priceSource;
       const feeRate = priceSource === 'csfloat' ? config.csfloatFeeRate : config.steamTaxRate;
       res.json({ results: results.map(serializeResult), count: results.length, feeRate, priceSource, hasCsfloatKey: !!config.csfloatApiKey });

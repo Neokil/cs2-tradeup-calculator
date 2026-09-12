@@ -206,6 +206,16 @@ nav{background:var(--surf);border-bottom:1px solid var(--border);display:flex;al
   <div class="controls">
     <div class="field"><label>Min ROI %</label><input type="number" id="minRoi" value="100" min="0" max="999" style="width:80px"></div>
     <div class="field"><label>Max results</label><input type="number" id="maxRes" value="50" min="1" max="500" style="width:80px"></div>
+    <div class="field"><label title="Maximum number of collections allowed in one trade-up. Auto uses two when the scan size is manageable.">Max collections</label>
+      <select id="maxCollections">
+        <option value="auto" selected>Auto</option>
+        <option value="1">1 collection</option>
+        <option value="2">Up to 2</option>
+        <option value="3">Up to 3</option>
+        <option value="4">Up to 4</option>
+        <option value="5">Up to 5</option>
+      </select>
+    </div>
     <div class="field"><label>StatTrak™</label>
       <select id="statTrak"><option value="false">No</option><option value="true">Yes</option></select>
     </div>
@@ -868,8 +878,9 @@ async function runScan() {
     const maxRes = +document.getElementById('maxRes').value;
     const statTrak = document.getElementById('statTrak').value;
     const floatMode = document.getElementById('floatMode').value;
+    const maxCollections = document.getElementById('maxCollections').value;
     const scanPriceSource = document.getElementById('scanPriceSource').value;
-    const url = `${API}/api/scan?minRoi=${minRoi}&maxResults=${maxRes}&statTrak=${statTrak}&floatMode=${floatMode}&priceSource=${scanPriceSource}`;
+    const url = `${API}/api/scan?minRoi=${minRoi}&maxResults=${maxRes}&statTrak=${statTrak}&floatMode=${floatMode}&maxCollections=${maxCollections}&priceSource=${scanPriceSource}`;
     const t0 = Date.now();
     const data = await fetch(url).then(r => r.json());
     if (data.error) throw new Error(data.error);

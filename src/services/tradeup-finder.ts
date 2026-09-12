@@ -95,13 +95,37 @@ function* generateAllocations(
   collectionIds: string[], total: number, maxCollections = 2,
 ): Generator<CollectionAllocation[]> {
   const n = collectionIds.length;
-  for (let i = 0; i < n; i++)
-    yield [{ collectionId: collectionIds[i], count: total }];
-  if (maxCollections < 2) return;
-  for (let i = 0; i < n - 1; i++)
-    for (let j = i + 1; j < n; j++)
-      for (let a = 1; a < total; a++)
-        yield [{ collectionId: collectionIds[i], count: a }, { collectionId: collectionIds[j], count: total - a }];
+  const maxSize = Math.min(Math.max(1, maxCollections), n, total);
+
+  for (let size = 1; size <= maxSize; size++) {
+    yield* chooseCollections(0, [], size);
+  }
+
+  function* chooseCollections(start: number, selected: string[], size: number): Generator<CollectionAllocation[]> {
+    if (selected.length === size) {
+      yield* distributeCounts(selected, 0, total, []);
+      return;
+    }
+
+    const needed = size - selected.length;
+    for (let i = start; i <= n - needed; i++) {
+      yield* chooseCollections(i + 1, [...selected, collectionIds[i]], size);
+    }
+  }
+
+  function* distributeCounts(
+    selected: string[], index: number, remaining: number, counts: number[],
+  ): Generator<CollectionAllocation[]> {
+    if (index === selected.length - 1) {
+      yield selected.map((collectionId, i) => ({ collectionId, count: i === index ? remaining : counts[i] }));
+      return;
+    }
+
+    const slotsLeft = selected.length - index - 1;
+    for (let count = 1; count <= remaining - slotsLeft; count++) {
+      yield* distributeCounts(selected, index + 1, remaining - count, [...counts, count]);
+    }
+  }
 }
 
 // ─────────────────────────────────────────────────────────────────
@@ -284,6 +308,7 @@ export interface FinderOptions {
   rarities?: Rarity[];
   floatMode?: FloatMode;
   priceSource?: PriceSource;
+  maxCollections?: 1 | 2 | 3 | 4 | 5;
 }
 
 export function findProfitableTradeUps(options: FinderOptions = {}): EvaluatedTradeUp[] {
@@ -294,6 +319,7 @@ export function findProfitableTradeUps(options: FinderOptions = {}): EvaluatedTr
     rarities = [Rarity.IndustrialGrade, Rarity.MilSpec, Rarity.Restricted, Rarity.Classified],
     floatMode = 'mid',
     priceSource = 'csfloat',
+    maxCollections,
   } = options;
 
   const results: EvaluatedTradeUp[] = [];
@@ -319,10 +345,10 @@ export function findProfitableTradeUps(options: FinderOptions = {}): EvaluatedTr
       continue;
     }
 
-    // Allow 2-collection combos up to 150 eligible collections.
+    // Allow 2-collection combos up to 150 eligible collections by default.
     // upperBound/lowerBound pruning eliminates most unpromising pairs quickly,
     // so even C(89,2)=3916 pairs typically prune down to a few hundred evaluations.
-    const maxColls = withPrices.length > 150 ? 1 : 2;
+    const maxColls = maxCollections ?? (withPrices.length > 150 ? 1 : 2);
     console.log(`${Rarity[inputRarity]} → ${Rarity[outputRarity]}: ${withPrices.length} eligible collections (maxColls=${maxColls})`);
 
     for (const allocations of generateAllocations(withPrices, 10, maxColls)) {
