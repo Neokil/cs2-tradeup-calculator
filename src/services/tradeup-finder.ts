@@ -314,6 +314,8 @@ export interface FinderOptions {
 }
 
 export function findProfitableTradeUps(options: FinderOptions = {}): EvaluatedTradeUp[] {
+  const start = performance.now();
+
   const {
     minRoi = config.minRoiThreshold,
     maxResults = config.maxResults,
@@ -396,7 +398,8 @@ export function findProfitableTradeUps(options: FinderOptions = {}): EvaluatedTr
     }
   }
 
-  console.log(`Evaluated ${evaluated}, pruned ${pruned}, found ${results.length} profitable`);
+  const duration = performance.now() - start;
+  console.log(`Evaluated ${evaluated}, pruned ${pruned}, found ${results.length} profitable in ${duration.toFixed(2)} ms`);
 
   const seen = new Map<string, EvaluatedTradeUp>();
   for (const r of results) {
