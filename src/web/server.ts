@@ -537,6 +537,7 @@ function serializeResult(r: EvaluatedTradeUp) {
         // Ruby/Sapphire/Black Pearl/Emerald command much higher prices.
         const isDoppler = /\bDoppler\b/i.test(o.skin.patternName);
         return {
+          skinId: o.skin.id,
           name: o.skin.name,
           collection: getCollectionName(o.skin.collectionId),
           condition: o.condition,

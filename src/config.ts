@@ -20,8 +20,4 @@ export const config = {
   // ByMykel CSGO-API base URL
   csgoApiBase: 'https://raw.githubusercontent.com/ByMykel/CSGO-API/main/public/api/en',
 
-  // Steam Community Market
-  steamMarketBase: 'https://steamcommunity.com/market',
-  steamAppId: 730,
-  steamCurrency: 1, // USD
 };

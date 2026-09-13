@@ -1112,6 +1112,10 @@ function renderDetail(r) {
   const outputRows = r.outputs.map(out => {
     const verifiedCents = out._verifiedPriceCents ?? null;
     const verifiedVol   = out._verifiedVolume ?? null;
+    const steamButton = `<a href="${out.marketUrl || '#'}" target="_blank" rel="noopener"
+      style="display:block;width:220px;font-size:.68rem;padding:2px 6px;background:#1a2535;border:1px solid var(--accent2);color:var(--accent2);border-radius:4px;text-decoration:none;text-align:left"
+      title="Open Steam Community Market listing">Steam Market</a>`;
+
     let priceHtml;
     if (verifiedCents !== null || out._illiquid) {
       if (out._illiquid) {
@@ -1163,6 +1167,7 @@ function renderDetail(r) {
           ${priceHtml.includes('⏳') ? '<div style="font-size:.65rem;color:var(--dim)">listing</div>' : ''}
         </span>
         <div style="display:flex;flex-direction:column;align-items:stretch;gap:3px;flex-shrink:0">
+          ${steamButton}
           ${marketQuoteButton('CSFloat', out.csfloatUrl || '#', effectivePrice * 100, effectivePrice * 100, 1, 'var(--accent2)', false, outputQuote?.csfloatBuyOrderCents != null ? ` / buy order ${fmtUsd(outputQuote.csfloatBuyOrderCents / 100)}` : '')}
           ${marketQuoteButton('CS.Money', outputQuote?.csMoneyUrl || out.csMoneyUrl || '#', outputQuote?.csMoneyPriceCents, outputQuote?.csMoneyAveragePriceCents, 1, '#d7a84d', false)}
           ${dmarketQuoteButton(outputQuote?.dmarketUrl || out.dmarketUrl || '#', outputQuote?.dmarketLowestPriceCents, outputQuote?.dmarketAveragePriceCents, 1, false)}
